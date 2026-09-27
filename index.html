@@ -1654,8 +1654,7 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
   const remaining = options.filter((o) => !decided.has(o.key));
   const likeCount = {};
   swipes.forEach((s) => (s.likes || []).forEach((k) => { likeCount[k] = (likeCount[k] || 0) + 1; }));
-  const matchKey = options.map((o) => o.key).find((k) => likeCount[k] >= 2);
-  const matchOpt = matchKey ? options.find((o) => o.key === matchKey) : null;
+  const matchOpts = options.filter((o) => likeCount[o.key] >= 2);
 
   const decide = (liked) => {
     const card = remaining[0];
@@ -1689,12 +1688,15 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
     await leisureCol().add({ kind: "movie", source, type, genre: genre || null, providers: provs, options: opts, createdBy: getName(), createdAt: Date.now() }).catch(console.error);
     setLoading(false);
   };
-  const spinMese = async () => {
-    let pool = [];
-    if (source === "tmdb" && TMDB_KEY) { const r = await tmdbDiscover("mese", null, provs); pool = r || []; }
-    else pool = (watchlist || []).filter((w) => (w.kind || "") === "mese").map((w) => ({ title: w.title, poster: w.img || null }));
-    if (!pool.length) { onToast && onToast("Nincs mese — vegyél fel, vagy válts TMDB-re."); return; }
-    setSpin(pool[Math.floor(Math.random() * pool.length)]);
+  const endRound = () => {
+    if (!round) return;
+    if (!confirm("Lezárod ezt a kört? A húzások és a match-lista törlődnek.")) return;
+    leisureCol().doc(round.id).delete().catch(console.error);
+  };
+  const spinPick = async () => {
+    const opts = await buildOptions();
+    if (!opts.length) { onToast && onToast(source === "tmdb" ? "Nincs találat, próbálj más szűrőt." : "Nincs a listán ilyen — vegyél fel párat!"); return; }
+    setSpin(opts[Math.floor(Math.random() * opts.length)]);
   };
 
   return (
@@ -1719,7 +1721,7 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
           <div className="flex flex-wrap gap-1.5">{PROVIDERS.map((p) => <Chip key={p} on={provs.includes(p)} onClick={() => toggleProv(p)}>{p}</Chip>)}</div></div>
         <div className="flex gap-2 pt-0.5">
           <button onClick={startRound} disabled={loading} className="btn-accent flex-1 py-2.5 text-[14px]">{loading ? "Töltés…" : "🎬 Új kör indítása"}</button>
-          {type === "mese" && <button onClick={spinMese} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold border" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>🎡 Pörgesd!</button>}
+          <button onClick={spinPick} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold border" style={{ borderColor: "var(--line)", color: "var(--accent)" }} title="Sorsolj egyet a szűrés alapján">🎡 Pörgesd!</button>
         </div>
         {spin && (
           <div className="rounded-xl p-3 flex items-center gap-3 pop" style={{ background: "var(--surface-2)" }}>
@@ -1729,17 +1731,21 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
         )}
       </div>
 
-      {matchOpt && (
+      {matchOpts.length > 0 && (
         <div className="card p-3 mb-4 pop" style={{ borderColor: "var(--green-line)", background: "var(--green-bg)" }}>
-          <p className="font-semibold" style={{ color: "var(--green)" }}>🎉 Match! Ezt nézzétek:</p>
-          <div className="flex items-center gap-3 mt-2">
-            {matchOpt.poster ? <img src={matchOpt.poster} alt="" className="w-12 h-16 rounded-lg object-cover flex-none" /> : <div className="w-12 h-16 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🎬</div>}
-            <div className="min-w-0">
-              <p className="font-display text-[18px] font-semibold truncate">{matchOpt.title}</p>
-              {(matchOpt.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>{(matchOpt.providers || []).join(", ")}</p> : null}
-              {matchOpt.link ? <a href={/^https?:\/\//i.test(matchOpt.link) ? matchOpt.link : "https://" + matchOpt.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold" style={{ color: "var(--accent)" }}>🔗 Megnyitás</a> : null}
-            </div>
-          </div>
+          <p className="font-semibold mb-2" style={{ color: "var(--green)" }}>🎉 Közös kedvenc{matchOpts.length > 1 ? "ek" : ""} ({matchOpts.length}):</p>
+          <ul className="space-y-2">
+            {matchOpts.map((m) => (
+              <li key={m.key} className="flex items-center gap-3">
+                {m.poster ? <img src={m.poster} alt="" className="w-11 h-16 rounded-lg object-cover flex-none" /> : <div className="w-11 h-16 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🎬</div>}
+                <div className="min-w-0">
+                  <p className="font-display text-[17px] font-semibold leading-tight truncate">{m.title}</p>
+                  {(m.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>{(m.providers || []).join(", ")}</p> : null}
+                  {m.link ? <a href={/^https?:\/\//i.test(m.link) ? m.link : "https://" + m.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold" style={{ color: "var(--accent)" }}>🔗 Megnyitás</a> : null}
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -1753,10 +1759,16 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
             </div>
           </div>
         ) : (
-          <Empty>{matchOpt ? "Megvan a match! 🎉" : "Végignézted mind. Várd meg a lakótársad, vagy indíts új kört."}</Empty>
+          <Empty>{matchOpts.length ? "Megvan a match! 🎉 Lásd fent a közös kedvenceket." : "Végignézted mind. Várd meg a lakótársad, vagy indíts új kört."}</Empty>
         )
       ) : (
         <Empty>Nincs aktív kör. Válassz szűrőt, és indíts egyet!</Empty>
+      )}
+
+      {round && (
+        <button onClick={endRound} className="mt-3 w-full py-2.5 rounded-xl text-[13px] font-semibold inline-flex items-center justify-center gap-2 border" style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
+          <Icon name="trash" className="w-[16px] h-[16px]" /> Kör lezárása
+        </button>
       )}
 
       {source === "saved" && (
