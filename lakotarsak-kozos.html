@@ -199,6 +199,14 @@ const roomCol = (name) => fdb.collection("rooms").doc(ROOM_ID).collection(name);
 const membersCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("members");
 const catsCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("categories");
 const leisureCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("leisureRounds");
+// kör törlése a húzásaival együtt (különben a swipes alkollekció árván maradna a felhőben)
+async function deleteRound(ref) {
+  const sw = await ref.collection("swipes").get();
+  const b = fdb.batch();
+  sw.docs.forEach((d) => b.delete(d.ref));
+  b.delete(ref);
+  await b.commit();
+}
 const CACHE_KEY = cloud ? "lakotarsak.cache." + ROOM_ID : STORE_KEY;
 
 /* ---------- kategóriák (szín + ikon) ---------- */
@@ -535,14 +543,18 @@ const TV_GENRES = [
 function tmdbImg(p) { return p ? "https://image.tmdb.org/t/p/w342" + p : null; }
 async function tmdbDiscover(type, genreId, providerNames) {
   const media = type === "sorozat" ? "tv" : "movie";
-  const params = new URLSearchParams({ api_key: TMDB_KEY, language: "hu-HU", watch_region: "HU", sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": "50", page: String(1 + Math.floor(Math.random() * 4)) });
+  const params = new URLSearchParams({ api_key: TMDB_KEY, language: "hu-HU", watch_region: "HU", sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": "50", page: "1" });
   const genres = type === "mese" ? "16,10751" : (genreId ? String(genreId) : "");
   if (genres) params.set("with_genres", genres);
   const provIds = (providerNames || []).map((n) => PROVIDER_TMDB[n]).filter(Boolean);
   if (provIds.length) params.set("with_watch_providers", provIds.join("|"));
+  const get = async () => { const r = await fetch("https://api.themoviedb.org/3/discover/" + media + "?" + params.toString()); if (!r.ok) throw new Error("TMDB " + r.status); return r.json(); };
   try {
-    const r = await fetch("https://api.themoviedb.org/3/discover/" + media + "?" + params.toString());
-    const j = await r.json();
+    let j = await get();
+    // véletlen oldal, de csak a létezők közül (szűk szűrőnél lehet, hogy csak 1 oldal van)
+    const pages = Math.min(j.total_pages || 1, 5);
+    const page = 1 + Math.floor(Math.random() * pages);
+    if (page > 1) { params.set("page", String(page)); j = await get(); }
     const arr = (j.results || []).filter((x) => x.poster_path).slice(0, 10).map((x) => ({
       key: "tmdb-" + x.id, tmdbId: x.id, title: x.title || x.name || "?", poster: tmdbImg(x.poster_path), overview: x.overview || "",
     }));
@@ -1527,7 +1539,7 @@ function BoardGamesView({ items, onAdd, onEdit, onRemove }) {
               {g.img ? <Thumb src={g.img} /> : <div className="w-8 h-8 rounded-lg grid place-items-center flex-none text-base" style={{ background: "var(--surface-2)" }}>🎲</div>}
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-[15px] leading-tight truncate">{g.name}</p>
-                {(g.minPlayers || g.maxPlayers || g.timeMins) && (
+                {!!(g.minPlayers || g.maxPlayers || g.timeMins) && (
                   <p className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>
                     {(g.minPlayers || g.maxPlayers) ? `👥 ${g.minPlayers || "?"}–${g.maxPlayers || "?"}` : ""}{(g.minPlayers || g.maxPlayers) && g.timeMins ? " · " : ""}{g.timeMins ? `⏱ ${g.timeMins} p` : ""}
                   </p>
@@ -1580,7 +1592,7 @@ function WatchForm({ initial, onSave, onCancel }) {
         <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Hol nézhető? (opcionális)</p>
         <div className="flex flex-wrap gap-1.5">{PROVIDERS.map((p) => <Chip key={p} on={providers.includes(p)} onClick={() => toggleProv(p)}>{p}</Chip>)}</div>
       </div>
-      <input className="field" type="url" inputMode="url" placeholder="Link (opcionális)" value={link} onChange={(e) => setLink(e.target.value)} />
+      <input className="field" type="text" inputMode="url" autoCapitalize="off" placeholder="Link (opcionális)" value={link} onChange={(e) => setLink(e.target.value)} />
       <div>
         <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Plakát / fotó (opcionális)</p>
         <ImagePicker value={img} onChange={setImg} />
@@ -1596,13 +1608,14 @@ function WatchForm({ initial, onSave, onCancel }) {
 function SwipeDeck({ card, index, total, onDecide }) {
   const [dx, setDx] = useState(0);
   const startX = useRef(null);
-  const down = (e) => { startX.current = e.clientX; };
+  const down = (e) => { startX.current = e.clientX; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {} };
   const move = (e) => { if (startX.current == null) return; setDx(e.clientX - startX.current); };
   const up = () => { if (startX.current == null) return; const d = dx; startX.current = null; setDx(0); if (Math.abs(d) > 80) onDecide(d > 0); };
+  const cancel = () => { startX.current = null; setDx(0); };
   const like = dx > 40, nope = dx < -40;
   return (
     <div className="card overflow-hidden select-none" style={{ transform: `translateX(${dx}px) rotate(${dx / 25}deg)`, transition: startX.current == null ? "transform .2s ease" : "none", touchAction: "pan-y", cursor: "grab", position: "relative" }}
-      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}>
       <div style={{ position: "relative", aspectRatio: "2/3", maxHeight: 360, background: "var(--surface-2)" }}>
         {card.poster ? <img src={card.poster} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} draggable="false" /> : <div className="grid place-items-center h-full text-5xl">🎬</div>}
         {like && <div style={{ position: "absolute", top: 14, left: 14, padding: "4px 10px", borderRadius: 8, border: "3px solid var(--green)", color: "var(--green)", fontWeight: 800, transform: "rotate(-12deg)", background: "rgba(0,0,0,.25)" }}>TETSZIK</div>}
@@ -1669,7 +1682,7 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
     if (source === "tmdb" && TMDB_KEY) {
       const gid = type === "mese" ? null : (genreList.find((g) => g.name === genre) || {}).id;
       const res = await tmdbDiscover(type, gid, provs);
-      if (!res) { onToast && onToast("TMDB hiba — nézd meg a kulcsot/netet."); return []; }
+      if (!res) { onToast && onToast("TMDB hiba — nézd meg a kulcsot/netet."); return null; }
       return res.map((o) => ({ ...o, providers: provs }));
     }
     let pool = (watchlist || []).filter((w) => (w.kind || "film") === type);
@@ -1683,18 +1696,20 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
     if (!cloud) { onToast && onToast("A közös húzás/match csak online (Firebase) módban megy."); return; }
     setLoading(true); setSpin(null);
     const opts = await buildOptions();
+    if (!opts) { setLoading(false); return; }
     if (!opts.length) { setLoading(false); onToast && onToast(source === "tmdb" ? "Nincs találat, próbálj más szűrőt." : "Nincs a listán ilyen — vegyél fel párat!"); return; }
-    try { const old = await leisureCol().get(); const b = fdb.batch(); old.docs.forEach((d) => b.delete(d.ref)); await b.commit(); } catch (e) {}
+    try { const old = await leisureCol().get(); for (const d of old.docs) await deleteRound(d.ref); } catch (e) {}
     await leisureCol().add({ kind: "movie", source, type, genre: genre || null, providers: provs, options: opts, createdBy: getName(), createdAt: Date.now() }).catch(console.error);
     setLoading(false);
   };
   const endRound = () => {
     if (!round) return;
     if (!confirm("Lezárod ezt a kört? A húzások és a match-lista törlődnek.")) return;
-    leisureCol().doc(round.id).delete().catch(console.error);
+    deleteRound(leisureCol().doc(round.id)).catch(console.error);
   };
   const spinPick = async () => {
     const opts = await buildOptions();
+    if (!opts) return;
     if (!opts.length) { onToast && onToast(source === "tmdb" ? "Nincs találat, próbálj más szűrőt." : "Nincs a listán ilyen — vegyél fel párat!"); return; }
     setSpin(opts[Math.floor(Math.random() * opts.length)]);
   };
