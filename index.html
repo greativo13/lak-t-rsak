@@ -1,0 +1,2070 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lakótársak</title>
+<meta name="theme-color" content="#3d5a80">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Lakótársak">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>
+  tailwind.config = {
+    corePlugins: { preflight: false },
+    theme: { extend: { fontFamily: {
+      sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+      display: ['Fraunces', 'Georgia', 'serif'],
+    } } },
+  };
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js" crossorigin></script>
+
+<!-- Firebase (közös, szinkronizált mód). Ha nem töltöd ki a kulcsokat, az app localStorage-zal működik. -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; }
+  img { max-width: 100%; display: block; }
+  [hidden] { display: none !important; }
+
+  :root {
+    --ground:   #f5f2ec;
+    --surface:  #ffffff;
+    --surface-2:#efeae1;
+    --ink:      #262019;
+    --muted:    #8b8172;
+    --line:     #e5ded1;
+    --accent:   #3d5a80;
+    --accent-ink:#ffffff;
+    --green:    #2f9e44;  --green-bg:#e7f4ea;  --green-line:#bfe3c8;
+    --amber:    #b9760a;  --amber-bg:#fbf0dc;  --amber-line:#eccf97;
+    --red:      #d63636;  --red-bg:#fbe6e6;    --red-line:#f0bcbc;
+    --shadow:   0 1px 2px rgba(38,32,25,.05), 0 6px 20px rgba(38,32,25,.06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#17140f; --surface:#221d16; --surface-2:#2c261d;
+      --ink:#f0e9dc; --muted:#a89d8a; --line:#37302599;
+      --accent:#86a4cc; --accent-ink:#141210;
+      --green:#5cc26f; --green-bg:#1b2e1f; --green-line:#2f5238;
+      --amber:#e2a13f; --amber-bg:#312512; --amber-line:#5c4425;
+      --red:#ef6b6b;   --red-bg:#331a1a;   --red-line:#5c2e2e;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#17140f; --surface:#221d16; --surface-2:#2c261d;
+    --ink:#f0e9dc; --muted:#a89d8a; --line:#37302599;
+    --accent:#86a4cc; --accent-ink:#141210;
+    --green:#5cc26f; --green-bg:#1b2e1f; --green-line:#2f5238;
+    --amber:#e2a13f; --amber-bg:#312512; --amber-line:#5c4425;
+    --red:#ef6b6b;   --red-bg:#331a1a;   --red-line:#5c2e2e;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+
+  html, body { background: var(--ground); }
+  body {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    color: var(--ink); -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+  .font-display { font-family: Fraunces, Georgia, serif; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  input, textarea, select, button { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; }
+  .field { width:100%; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 13px; outline:none; transition:border-color .15s, box-shadow .15s; }
+  .field::placeholder { color: var(--muted); }
+  .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); }
+  .btn-accent { background:var(--accent); color:var(--accent-ink); border-radius:12px; font-weight:600; transition:filter .15s, transform .05s; }
+  .btn-accent:hover { filter: brightness(1.06); }
+  .btn-accent:active { transform: translateY(1px); }
+  .btn-accent:disabled { opacity:.6; }
+
+  .tab-btn { color:var(--muted); transition:color .15s; }
+  .tab-btn[data-active="true"] { color:var(--accent); }
+
+  .checkbox { width:26px; height:26px; flex:none; border-radius:8px; border:2px solid var(--line); background:var(--surface); display:grid; place-items:center; transition:background .15s, border-color .15s; }
+  .checkbox[data-on="true"] { background:var(--accent); border-color:var(--accent); }
+
+  .row-leave { animation: rowLeave .5s ease forwards; }
+  @keyframes rowLeave { 0%{opacity:1} 35%{opacity:.35} 100%{opacity:0; transform:translateX(14px); height:0; margin:0; padding-top:0; padding-bottom:0} }
+  .pop { animation: pop .18s ease; }
+  @keyframes pop { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+
+  .seg { border:1px solid var(--line); background:var(--surface-2); border-radius:12px; padding:3px; display:grid; grid-template-columns:repeat(3,1fr); gap:3px; }
+  .seg > button { border-radius:9px; padding:9px 4px; font-weight:600; font-size:13px; transition:background .15s, color .15s, box-shadow .15s; }
+
+  .toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); z-index:50; background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:999px; font-size:13px; font-weight:600; box-shadow:var(--shadow); animation:pop .18s ease; display:flex; align-items:center; gap:14px; max-width:calc(100vw - 32px); }
+  .toast .undo { color:var(--ground); text-decoration:underline; font-weight:700; white-space:nowrap; }
+
+  .overlay { position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.45); display:grid; place-items:center; padding:16px; animation:pop .15s ease; }
+
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:20px; border:3px solid var(--ground); }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* ---------- PWA: kezdőképernyő ikon + manifest (extra fájl nélkül) ---------- */
+(function setupPWA(){
+  try {
+    const size = 192, c = document.createElement("canvas");
+    c.width = c.height = size;
+    const x = c.getContext("2d");
+    x.fillStyle = "#3d5a80"; x.fillRect(0, 0, size, size);
+    x.fillStyle = "#ffffff"; x.font = "bold 118px Georgia, serif";
+    x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText("L", size / 2, size / 2 + 8);
+    const png = c.toDataURL("image/png");
+    const apple = document.createElement("link");
+    apple.rel = "apple-touch-icon"; apple.href = png; document.head.appendChild(apple);
+    const manifest = {
+      name: "Lakótársak", short_name: "Lakótársak", display: "standalone",
+      background_color: "#f5f2ec", theme_color: "#3d5a80", start_url: "./",
+      icons: [
+        { src: png, sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: png, sizes: "512x512", type: "image/png", purpose: "any" },
+      ],
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+    const ml = document.createElement("link"); ml.rel = "manifest";
+    ml.href = URL.createObjectURL(blob); document.head.appendChild(ml);
+  } catch (e) {}
+})();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const STORE_KEY = "lakotarsak.v1";
+const DEVICE = (() => {
+  try {
+    let d = localStorage.getItem("lakotarsak.device");
+    if (!d) { d = "d" + Math.random().toString(36).slice(2, 10); localStorage.setItem("lakotarsak.device", d); }
+    return d;
+  } catch (e) { return "d" + Math.random().toString(36).slice(2, 10); }
+})();
+const getName = () => { try { return localStorage.getItem("lakotarsak.name") || ""; } catch (e) { return ""; } };
+
+/* ============================================================
+   FIREBASE BEÁLLÍTÁS — ide illeszd be a saját projekted kulcsait.
+   Amíg üres, az app CSAK ezen az eszközön tárol (localStorage).
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDGk9MVe2BlAdZLYzhEOvmbLtTXlPfQ308",
+  authDomain: "lakotars-92193.firebaseapp.com",
+  projectId: "lakotars-92193",
+  storageBucket: "lakotars-92193.firebasestorage.app",
+  messagingSenderId: "18117090618",
+  appId: "1:18117090618:web:58f7ac1ae493b4ce978403",
+};
+
+let fdb = null;
+const CLOUD = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+if (CLOUD) {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fdb = firebase.firestore();
+    fdb.enablePersistence({ synchronizeTabs: true }).catch(() => {}); // offline gyorsítótár
+  } catch (e) { console.error("Firebase init hiba:", e); }
+}
+const cloud = CLOUD && !!fdb;
+
+/* EGYETLEN közös háztartás — mindenki, aki a linket megnyitja, ezt látja.
+   (Ha valaha külön listát akarnál egy másik lakásnak, elég ezt a szöveget átírni.) */
+const HOUSEHOLD_ID = "otthon-kozos";
+const ROOM_ID = cloud ? HOUSEHOLD_ID : null;
+const roomCol = (name) => fdb.collection("rooms").doc(ROOM_ID).collection(name);
+const membersCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("members");
+const catsCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("categories");
+const leisureCol = () => fdb.collection("rooms").doc(ROOM_ID).collection("leisureRounds");
+const CACHE_KEY = cloud ? "lakotarsak.cache." + ROOM_ID : STORE_KEY;
+
+/* ---------- kategóriák (szín + ikon) ---------- */
+const DEFAULT_CATEGORIES = [
+  { id: "zoldseg", name: "Zöldség", icon: "🥕", color: "#2f9e44", sort: 1 },
+  { id: "gyumolcs", name: "Gyümölcs", icon: "🍎", color: "#e03131", sort: 2 },
+  { id: "pekaru", name: "Pékáru", icon: "🥖", color: "#b9760a", sort: 3 },
+  { id: "tejtermek", name: "Tejtermék", icon: "🧀", color: "#f0a800", sort: 4 },
+  { id: "hus", name: "Hús, hal", icon: "🥩", color: "#c2255c", sort: 5 },
+  { id: "fuszer", name: "Fűszer", icon: "🧂", color: "#e8590c", sort: 6 },
+  { id: "ital", name: "Ital", icon: "🥤", color: "#1c7ed6", sort: 7 },
+  { id: "edesseg", name: "Édesség", icon: "🍫", color: "#845ef7", sort: 8 },
+  { id: "tisztitoszer", name: "Tisztítószer", icon: "🧴", color: "#0ca678", sort: 9 },
+  { id: "higienia", name: "Higiénia", icon: "🧼", color: "#22b8cf", sort: 10 },
+  { id: "haztartas", name: "Háztartás", icon: "🧽", color: "#868e96", sort: 11 },
+  { id: "egyeb", name: "Egyéb", icon: "📦", color: "#7c7c7c", sort: 12 },
+];
+function tint(hex, a) {
+  try {
+    const h = (hex || "#7c7c7c").replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  } catch (e) { return `rgba(124,124,124,${a})`; }
+}
+function readableOn(hex) {
+  try {
+    const h = (hex || "#7c7c7c").replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#1a1a1a" : "#ffffff";
+  } catch (e) { return "#ffffff"; }
+}
+function catBg(c) { return c ? `color-mix(in srgb, ${c.color} 12%, var(--surface))` : "var(--surface)"; }
+function findCat(cats, item) {
+  if (!item) return null;
+  if (item.catId) { const c = (cats || []).find((x) => x.id === item.catId); if (c) return c; }
+  if (item.category) { const k = item.category.trim().toLowerCase(); const c = (cats || []).find((x) => (x.name || "").trim().toLowerCase() === k); if (c) return c; }
+  return null;
+}
+
+/* ---------- localStorage ---------- */
+const SEED = {
+  shopping: [
+    { id: uid(), name: "Tej", qty: "2 l", img: null, done: false, createdAt: Date.now() },
+    { id: uid(), name: "Tojás", qty: "10 db", img: null, done: false, createdAt: Date.now() - 1 },
+    { id: uid(), name: "WC-papír", qty: "1 csomag", img: null, done: true, createdAt: Date.now() - 2 },
+  ],
+  inventory: [
+    { id: uid(), name: "Kávé", qty: "fél zacskó", status: "amber", img: null, createdAt: Date.now() },
+    { id: uid(), name: "Mosogatószer", qty: "majdnem tele", status: "green", img: null, createdAt: Date.now() - 1 },
+    { id: uid(), name: "Cukor", qty: "elfogyott", status: "red", img: null, createdAt: Date.now() - 2 },
+  ],
+  debts: [
+    { id: uid(), payer: "Anna", amount: 3200, note: "közös nagybevásárlás", createdAt: Date.now() },
+    { id: uid(), payer: "Bence", amount: 1500, note: "pizza péntek este", createdAt: Date.now() - 1 },
+  ],
+};
+function loadInitial() {
+  const base = cloud ? { shopping: [], inventory: [], debts: [], boardgames: [], watchlist: [] } : { ...SEED, boardgames: [], watchlist: [] };
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return { ...base, categories: DEFAULT_CATEGORIES };
+    const p = JSON.parse(raw);
+    return {
+      shopping: Array.isArray(p.shopping) ? p.shopping : [],
+      inventory: Array.isArray(p.inventory) ? p.inventory : [],
+      debts: Array.isArray(p.debts) ? p.debts : [],
+      boardgames: Array.isArray(p.boardgames) ? p.boardgames : [],
+      watchlist: Array.isArray(p.watchlist) ? p.watchlist : [],
+      categories: Array.isArray(p.categories) && p.categories.length ? p.categories : DEFAULT_CATEGORIES,
+    };
+  } catch (e) { return { ...base, categories: DEFAULT_CATEGORIES }; }
+}
+
+/* ---------- data layer ---------- */
+function useBackend() {
+  const [data, setData] = useState(loadInitial);
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    if (!cloud) return;
+    const names = ["shopping", "inventory", "debts", "boardgames", "watchlist"];
+    const inited = {};
+    const unsubs = names.map((name) =>
+      roomCol(name).orderBy("createdAt", "desc").onSnapshot(
+        (snap) => {
+          const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setData((prev) => ({ ...prev, [name]: items }));
+          if (inited[name]) {
+            snap.docChanges().forEach((ch) => {
+              if (ch.type === "added" && !ch.doc.metadata.hasPendingWrites) {
+                const d = ch.doc.data() || {};
+                if (d.author && d.author !== DEVICE) notifyNew(name, d);
+              }
+            });
+          }
+          inited[name] = true;
+        },
+        (err) => console.error(name, err)
+      ));
+    return () => unsubs.forEach((u) => u && u());
+  }, []);
+
+  useEffect(() => {
+    if (!cloud) return;
+    let seeded = false;
+    const unsub = catsCol().orderBy("sort").onSnapshot(
+      (snap) => {
+        if (snap.empty) {
+          if (!seeded) {
+            seeded = true;
+            const batch = fdb.batch();
+            DEFAULT_CATEGORIES.forEach((c) => { const { id, ...rest } = c; batch.set(catsCol().doc(id), rest); });
+            batch.commit().catch(console.error);
+          }
+          return; // amíg üres, marad a default a state-ben
+        }
+        const cats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setData((prev) => ({ ...prev, categories: cats }));
+      },
+      (err) => console.error("categories", err)
+    );
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+  }, [data]);
+
+  const ops = {
+    add(name, item) {
+      const full = { ...item, createdAt: Date.now(), author: DEVICE, by: getName() };
+      if (cloud) roomCol(name).doc(uid()).set(full).catch(console.error);
+      else setData((p) => ({ ...p, [name]: [{ id: uid(), ...full }, ...p[name]] }));
+    },
+    update(name, id, patch) {
+      if (cloud) roomCol(name).doc(id).update(patch).catch(console.error);
+      else setData((p) => ({ ...p, [name]: p[name].map((i) => i.id === id ? { ...i, ...patch } : i) }));
+    },
+    remove(name, id) {
+      if (cloud) roomCol(name).doc(id).delete().catch(console.error);
+      else setData((p) => ({ ...p, [name]: p[name].filter((i) => i.id !== id) }));
+    },
+    clear(name) {
+      const items = dataRef.current[name] || [];
+      if (cloud) {
+        for (let i = 0; i < items.length; i += 400) {
+          const batch = fdb.batch();
+          items.slice(i, i + 400).forEach((it) => batch.delete(roomCol(name).doc(it.id)));
+          batch.commit().catch(console.error);
+        }
+      } else setData((p) => ({ ...p, [name]: [] }));
+    },
+    restore(name, items) {
+      if (!items || !items.length) return;
+      if (cloud) {
+        items.forEach((it) => { const { id, ...rest } = it; roomCol(name).doc(id).set(rest).catch(console.error); });
+      } else {
+        setData((p) => {
+          const map = new Map(p[name].map((i) => [i.id, i]));
+          items.forEach((it) => map.set(it.id, it));
+          const arr = [...map.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          return { ...p, [name]: arr };
+        });
+      }
+    },
+    catAdd(cat) {
+      const doc = { name: cat.name, icon: cat.icon || "📦", color: cat.color || "#7c7c7c", sort: Date.now() };
+      if (cloud) catsCol().doc(uid()).set(doc).catch(console.error);
+      else setData((p) => ({ ...p, categories: [...(p.categories || []), { id: uid(), ...doc }] }));
+    },
+    catUpdate(id, patch) {
+      if (cloud) catsCol().doc(id).update(patch).catch(console.error);
+      else setData((p) => ({ ...p, categories: (p.categories || []).map((c) => c.id === id ? { ...c, ...patch } : c) }));
+    },
+    catRemove(id) {
+      if (cloud) catsCol().doc(id).delete().catch(console.error);
+      else setData((p) => ({ ...p, categories: (p.categories || []).filter((c) => c.id !== id) }));
+    },
+  };
+  return { data, ops };
+}
+
+/* ---------- helpers ---------- */
+const forint = (n) => (Number(n) || 0).toLocaleString("hu-HU") + " Ft";
+function timeAgo(ts) {
+  if (!ts) return "";
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "most";
+  const m = Math.floor(s / 60); if (m < 60) return m + " perce";
+  const h = Math.floor(m / 60); if (h < 24) return h + " órája";
+  const d = Math.floor(h / 24); if (d === 1) return "tegnap";
+  if (d < 7) return d + " napja";
+  try { return new Date(ts).toLocaleDateString("hu-HU", { month: "short", day: "numeric" }); } catch (e) { return d + " napja"; }
+}
+
+function notifyNew(name, d) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (name !== "shopping" && name !== "debts") return;
+  const who = d.by ? d.by + ": " : "";
+  const title = name === "shopping" ? "Új a bevásárlólistán 🛒" : "Új tartozás 💸";
+  const body = name === "shopping"
+    ? who + (d.name || "Tétel") + (d.qty ? ` (${d.qty})` : "")
+    : `${d.payer || "Valaki"} fizetett ${forint(d.amount)}${d.note ? " · " + d.note : ""}`;
+  try { new Notification(title, { body, tag: name + "-" + Date.now() }); } catch (e) {}
+}
+
+/* ---------- icons ---------- */
+function Icon({ name, className, style }) {
+  const p = {
+    cart: "M2.5 3h1.6a1 1 0 0 1 .97.76L5.4 6m0 0 1.3 6.5a2 2 0 0 0 1.96 1.6h6.9a2 2 0 0 0 1.95-1.55l1.2-5.2A.9.9 0 0 0 18.72 6H5.4Zm3.1 12.5a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm8.8 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z",
+    box: "M3.5 7.5 12 3l8.5 4.5M3.5 7.5 12 12m-8.5-4.5v9L12 21m0-9 8.5-4.5M12 12v9m8.5-13.5v9L12 21",
+    wallet: "M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v.5M3 7.5V17a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2M3 7.5h15a2 2 0 0 1 2 2V13m0 0h-3.5a1.75 1.75 0 1 0 0 3.5H20",
+    plus: "M12 5v14M5 12h14",
+    trash: "M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7m2 0v11.5A1.5 1.5 0 0 1 15.5 20h-7A1.5 1.5 0 0 1 7 18.5V7",
+    check: "M4.5 12.5 9.5 17.5 19.5 6.5",
+    edit: "M4 20h4L18.5 9.5a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 16v4Z",
+    camera: "M4 8.5A1.5 1.5 0 0 1 5.5 7h1.7l1-1.6A1 1 0 0 1 10 5h4a1 1 0 0 1 .85.47L15.8 7h2.7A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9Z M12 10.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
+    x: "M6 6l12 12M18 6 6 18",
+    arrow: "M5 12h14M13 6l6 6-6 6",
+    share: "M8.5 13.5 15.5 17M15.5 7 8.5 10.5M18 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM6 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+    bell: "M6 9a6 6 0 1 1 12 0c0 3.6 1.2 5.2 2 6.2H4c.8-1 2-2.6 2-6.2ZM9.5 18.5a2.5 2.5 0 0 0 5 0",
+    person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4.5 20a7.5 7.5 0 0 1 15 0",
+    eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+    eyeoff: "M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.8 3.6M6.1 6.2A17 17 0 0 0 2.5 12S6 18.5 12 18.5c.8 0 1.5-.1 2.2-.3",
+    undo: "M9 14 4 9l5-5 M4 9h9a7 7 0 0 1 0 14h-2.5",
+    chevron: "M6 9l6 6 6-6",
+    search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM20 20l-3.6-3.6",
+    dice: "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z M8.5 8.5h.01 M15.5 8.5h.01 M12 12h.01 M8.5 15.5h.01 M15.5 15.5h.01",
+    heart: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z",
+    refresh: "M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4 M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4",
+    scan: "M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16",
+  }[name];
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" className={className} style={style} aria-hidden="true">
+      <path d={p} />
+    </svg>
+  );
+}
+
+
+function Thumb({ src, fallback }) {
+  if (src) return <img src={src} alt="" className="w-8 h-8 rounded-lg object-cover flex-none" />;
+  return (
+    <div className="w-8 h-8 rounded-lg grid place-items-center flex-none font-display text-sm"
+      style={{ background: "var(--surface-2)", color: "var(--muted)" }}>{fallback}</div>
+  );
+}
+
+function ItemAvatar({ cat, name }) {
+  if (cat) return (
+    <div className="w-8 h-8 rounded-lg grid place-items-center flex-none" style={{ background: tint(cat.color, 0.16), fontSize: 17, boxShadow: `inset 0 0 0 1px ${tint(cat.color, 0.35)}` }}>
+      <span aria-hidden="true">{cat.icon || "📦"}</span>
+    </div>
+  );
+  return (
+    <div className="w-8 h-8 rounded-lg grid place-items-center flex-none font-display text-sm" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>{(name || "?").slice(0, 1).toUpperCase()}</div>
+  );
+}
+
+function compressImage(file, maxDim = 700, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else if (height >= width && height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+          const c = document.createElement("canvas"); c.width = width; c.height = height;
+          c.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(c.toDataURL("image/jpeg", quality));
+        } catch (err) { reject(err); }
+      };
+      img.onerror = reject; img.src = e.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+
+function ImagePicker({ value, onChange }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const pick = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBusy(true);
+    try { onChange(await compressImage(file)); }
+    catch (err) { alert("A képet nem sikerült beolvasni."); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+  };
+  return (
+    <div>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={pick} />
+      {value ? (
+        <div className="flex items-center gap-3">
+          <img src={value} alt="" className="w-14 h-14 rounded-lg object-cover flex-none" />
+          <button type="button" onClick={() => inputRef.current && inputRef.current.click()} className="text-[13px] font-semibold" style={{ color: "var(--accent)" }}>Csere</button>
+          <button type="button" onClick={() => onChange(null)} className="text-[13px] font-semibold" style={{ color: "var(--red)" }}>Törlés</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current && inputRef.current.click()} disabled={busy}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold border"
+          style={{ borderColor: "var(--line)", background: "var(--surface)", color: "var(--accent)" }}>
+          <Icon name="camera" className="w-[16px] h-[16px]" /> {busy ? "Feldolgozás…" : "Fotó hozzáadása"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const EMOJI_CHOICES = ["🥕", "🍎", "🍌", "🥦", "🥬", "🥖", "🍞", "🧀", "🥛", "🥚", "🥩", "🍗", "🐟", "🧂", "🌶️", "🫒", "🥤", "☕", "🍵", "🍺", "🍷", "💧", "🍫", "🍪", "🍿", "🍝", "🍚", "🥫", "🧊", "🥣", "🌾", "🧴", "🧼", "🧻", "🧽", "🧺", "🍽️", "🍼", "🐾", "💊", "🕯️", "📦"];
+const COLOR_CHOICES = ["#e03131", "#e8590c", "#f08c00", "#f0a800", "#2f9e44", "#0ca678", "#22b8cf", "#1c7ed6", "#4263eb", "#7048e8", "#845ef7", "#c2255c", "#868e96"];
+const STORES = ["Tesco", "Lidl", "Aldi", "Spar", "Penny", "Auchan", "CBA", "Coop", "Príma", "Reál", "DM", "Rossmann", "Metro", "IKEA", "Piac", "Online"];
+
+/* ---------- Szabadidő: streaming + TMDB ---------- */
+/* TMDB API-kulcs a valódi film/sorozat ajánlásokhoz. Üresen a saját listás mód és a Társas működik.
+   Ingyenes kulcs: https://www.themoviedb.org/settings/api (v3 auth "API Key") */
+const TMDB_KEY = "3a59373cb0306b9701118f8cfc3b6644";
+const PROVIDERS = ["Netflix", "Max", "Disney+", "Prime Video", "Egyéb"];
+/* TMDB watch-provider id-k (HU). Ha a TMDB-mód üres eredményt ad, ezeket a kulcs beállítása után pontosítjuk. */
+const PROVIDER_TMDB = { "Netflix": 8, "Max": 1899, "Disney+": 337, "Prime Video": 119 };
+const MOVIE_GENRES = [
+  { id: 28, name: "Akció" }, { id: 12, name: "Kaland" }, { id: 35, name: "Vígjáték" }, { id: 18, name: "Dráma" },
+  { id: 27, name: "Horror" }, { id: 9648, name: "Rejtély" }, { id: 10749, name: "Romantikus" }, { id: 878, name: "Sci-fi" },
+  { id: 53, name: "Thriller" }, { id: 14, name: "Fantasy" }, { id: 80, name: "Krimi" }, { id: 16, name: "Animáció" }, { id: 10751, name: "Családi" },
+];
+const TV_GENRES = [
+  { id: 10759, name: "Akció-kaland" }, { id: 35, name: "Vígjáték" }, { id: 18, name: "Dráma" }, { id: 80, name: "Krimi" },
+  { id: 9648, name: "Rejtély" }, { id: 10765, name: "Sci-fi-fantasy" }, { id: 16, name: "Animáció" }, { id: 10751, name: "Családi" }, { id: 99, name: "Dokumentum" },
+];
+function tmdbImg(p) { return p ? "https://image.tmdb.org/t/p/w342" + p : null; }
+async function tmdbDiscover(type, genreId, providerNames) {
+  const media = type === "sorozat" ? "tv" : "movie";
+  const params = new URLSearchParams({ api_key: TMDB_KEY, language: "hu-HU", watch_region: "HU", sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": "50", page: String(1 + Math.floor(Math.random() * 4)) });
+  const genres = type === "mese" ? "16,10751" : (genreId ? String(genreId) : "");
+  if (genres) params.set("with_genres", genres);
+  const provIds = (providerNames || []).map((n) => PROVIDER_TMDB[n]).filter(Boolean);
+  if (provIds.length) params.set("with_watch_providers", provIds.join("|"));
+  try {
+    const r = await fetch("https://api.themoviedb.org/3/discover/" + media + "?" + params.toString());
+    const j = await r.json();
+    const arr = (j.results || []).filter((x) => x.poster_path).slice(0, 10).map((x) => ({
+      key: "tmdb-" + x.id, tmdbId: x.id, title: x.title || x.name || "?", poster: tmdbImg(x.poster_path), overview: x.overview || "",
+    }));
+    return arr;
+  } catch (e) { return null; }
+}
+
+function ExtraFields({ store, setStore, link, setLink, idSuffix }) {
+  return (
+    <React.Fragment>
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Hol vettük? (opcionális)</p>
+        <input className="field" list={"stores-" + idSuffix} placeholder="pl. Tesco, Lidl, Piac…" value={store} onChange={(e) => setStore(e.target.value)} />
+        <datalist id={"stores-" + idSuffix}>{STORES.map((s) => <option key={s} value={s} />)}</datalist>
+      </div>
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Termék link (opcionális)</p>
+        <input className="field" type="url" inputMode="url" placeholder="https://…" value={link} onChange={(e) => setLink(e.target.value)} />
+      </div>
+    </React.Fragment>
+  );
+}
+
+function CategoryPicker({ categories, value, onChange, onManage }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {(categories || []).map((c) => {
+        const sel = value === c.id;
+        return (
+          <button type="button" key={c.id} onClick={() => onChange(sel ? "" : c.id)}
+            className="inline-flex items-center gap-1 pl-1.5 pr-2.5 py-1 rounded-full text-[12px] font-semibold"
+            style={sel ? { background: c.color, color: readableOn(c.color) } : { background: tint(c.color, 0.14), color: "var(--ink)" }}>
+            <span aria-hidden="true">{c.icon}</span>{c.name}
+          </button>
+        );
+      })}
+      <button type="button" onClick={onManage}
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold border"
+        style={{ borderColor: "var(--line)", color: "var(--muted)" }}>＋ Kategóriák</button>
+    </div>
+  );
+}
+
+function CategoryManager({ categories, onAdd, onUpdate, onRemove, onClose }) {
+  const [editing, setEditing] = useState(null); // "new" | id | null
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("📦");
+  const [color, setColor] = useState(COLOR_CHOICES[4]);
+  const startNew = () => { setEditing("new"); setName(""); setIcon("📦"); setColor(COLOR_CHOICES[4]); };
+  const startEdit = (c) => { setEditing(c.id); setName(c.name || ""); setIcon(c.icon || "📦"); setColor(c.color || COLOR_CHOICES[4]); };
+  const save = (e) => {
+    e && e.preventDefault();
+    if (!name.trim()) return;
+    if (editing === "new") onAdd({ name: name.trim(), icon, color });
+    else onUpdate(editing, { name: name.trim(), icon, color });
+    setEditing(null);
+  };
+  const move = (idx, dir) => {
+    const arr = categories || [];
+    const j = idx + dir;
+    if (j < 0 || j >= arr.length) return;
+    const a = arr[idx], b = arr[j];
+    const sa = (a.sort != null ? a.sort : idx), sb = (b.sort != null ? b.sort : j);
+    onUpdate(a.id, { sort: sb }); onUpdate(b.id, { sort: sa });
+  };
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card p-4 w-full" style={{ maxWidth: 400, maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-display text-[20px] font-semibold">Kategóriák</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg" style={{ color: "var(--muted)" }} aria-label="Bezárás"><Icon name="x" className="w-5 h-5" /></button>
+        </div>
+        {editing ? (
+          <form onSubmit={save} className="space-y-3">
+            <input className="field" placeholder="Név (pl. Zöldség)" value={name} maxLength={20} onChange={(e) => setName(e.target.value)} />
+            <div>
+              <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Ikon</p>
+              <div className="flex flex-wrap gap-1.5">
+                {EMOJI_CHOICES.map((em) => (
+                  <button key={em} type="button" onClick={() => setIcon(em)} className="w-9 h-9 rounded-lg grid place-items-center text-[20px]"
+                    style={{ background: icon === em ? tint(color, 0.25) : "var(--surface-2)", boxShadow: icon === em ? `inset 0 0 0 2px ${color}` : "none" }}>{em}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Szín</p>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_CHOICES.map((col) => (
+                  <button key={col} type="button" onClick={() => setColor(col)} className="w-8 h-8 rounded-full"
+                    style={{ background: col, boxShadow: color === col ? `0 0 0 2px var(--surface), 0 0 0 4px ${col}` : "none" }} aria-label={col} />
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <div className="w-10 h-10 rounded-xl grid place-items-center text-[22px]" style={{ background: tint(color, 0.16), boxShadow: `inset 0 0 0 1px ${tint(color, 0.35)}` }}>{icon}</div>
+              <span className="text-[14px] font-semibold">{name.trim() || "Előnézet"}</span>
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Mentés</button>
+              <button type="button" onClick={() => setEditing(null)} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+            </div>
+          </form>
+        ) : (
+          <div>
+            <ul className="space-y-1.5">
+              {(categories || []).map((c, idx) => (
+                <li key={c.id} className="flex items-center gap-1.5">
+                  <div className="flex flex-col flex-none">
+                    <button onClick={() => move(idx, -1)} disabled={idx === 0} className="px-1 rounded" style={{ color: "var(--muted)", opacity: idx === 0 ? 0.3 : 1 }} aria-label="Feljebb"><Icon name="chevron" className="w-4 h-4" style={{ transform: "rotate(180deg)" }} /></button>
+                    <button onClick={() => move(idx, 1)} disabled={idx === (categories.length - 1)} className="px-1 rounded" style={{ color: "var(--muted)", opacity: idx === (categories.length - 1) ? 0.3 : 1 }} aria-label="Lejjebb"><Icon name="chevron" className="w-4 h-4" /></button>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg grid place-items-center text-[18px] flex-none" style={{ background: tint(c.color, 0.16), boxShadow: `inset 0 0 0 1px ${tint(c.color, 0.35)}` }}>{c.icon}</div>
+                  <span className="flex-1 min-w-0 text-[14px] font-semibold truncate">{c.name}</span>
+                  <button onClick={() => startEdit(c)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
+                  <button onClick={() => { if (confirm(`Törlöd a(z) „${c.name}” kategóriát?`)) onRemove(c.id); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+                </li>
+              ))}
+            </ul>
+            <button onClick={startNew} className="btn-accent w-full py-2.5 text-[14px] mt-3">＋ Új kategória</button>
+            <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>A kategóriák közösek — mindenki ugyanazokat látja a háztartásban.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Meta({ by, ts }) {
+  if (!cloud) return null;
+  const s = [by, timeAgo(ts)].filter(Boolean).join(" · ");
+  if (!s) return null;
+  return <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--muted)" }}>{s}</p>;
+}
+
+function SectionHead({ title, hint, action }) {
+  return (
+    <div className="flex items-end justify-between gap-3 mb-3">
+      <div>
+        <h2 className="font-display text-[26px] leading-none font-semibold tracking-[-.01em]">{title}</h2>
+        {hint && <p className="text-[13px] mt-1.5" style={{ color: "var(--muted)" }}>{hint}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+function Empty({ children }) {
+  return <div className="card p-8 text-center" style={{ color: "var(--muted)" }}><p className="text-[14px]">{children}</p></div>;
+}
+
+/* ---------- élő vonalkód-szken modal ---------- */
+/* ---------- profil + résztvevők modal ---------- */
+function initialsColor(str) {
+  let h = 0; for (let i = 0; i < (str || "?").length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
+  return `hsl(${h} 45% 55%)`;
+}
+function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, onClose }) {
+  const [val, setVal] = useState(initial || "");
+  const [editingId, setEditingId] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const ref = useRef(null);
+  const others = (members || []).slice().sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+  const startEdit = (m) => { setEditingId(m.id); setEditVal(m.name || ""); };
+  const saveEdit = (m) => { onRenameMember(m.id, editVal.trim()); setEditingId(null); };
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card p-4 w-full" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-display text-[20px] font-semibold mb-1">Mi a neved?</h3>
+        <p className="text-[13px] mb-3" style={{ color: "var(--muted)" }}>Ez jelenik meg a lakótársaknál: ki vett fel egy tételt. Bármikor módosíthatod.</p>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(val.trim()); }}>
+          <input ref={ref} className="field" placeholder="pl. Anna" value={val} maxLength={20} onChange={(e) => setVal(e.target.value)} />
+          <div className="flex gap-2 mt-3">
+            <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Mentés</button>
+            <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Kihagyom</button>
+          </div>
+        </form>
+        {cloud && others.length > 0 && (
+          <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--line)" }}>
+            <p className="text-[12px] font-semibold mb-2" style={{ color: "var(--muted)" }}>Lakótársak ({others.length}) — átnevezhető, eltávolítható:</p>
+            <ul className="space-y-1.5">
+              {others.map((m) => {
+                const nm = m.name && m.name.trim() ? m.name.trim() : "Névtelen";
+                const me = m.device === DEVICE;
+                if (editingId === m.id) {
+                  return (
+                    <li key={m.id} className="flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-full grid place-items-center flex-none text-[13px] font-bold" style={{ background: initialsColor(editVal || nm), color: "#fff" }}>{(editVal || nm).slice(0, 1).toUpperCase()}</span>
+                      <form className="flex-1 flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); saveEdit(m); }}>
+                        <input className="field" style={{ padding: "7px 10px" }} value={editVal} maxLength={20} onChange={(e) => setEditVal(e.target.value)} />
+                        <button type="submit" className="p-1.5 rounded-lg flex-none" style={{ color: "var(--accent)" }} aria-label="Mentés"><Icon name="check" className="w-[18px] h-[18px]" /></button>
+                        <button type="button" onClick={() => setEditingId(null)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Mégse"><Icon name="x" className="w-[18px] h-[18px]" /></button>
+                      </form>
+                    </li>
+                  );
+                }
+                return (
+                  <li key={m.id} className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-full grid place-items-center flex-none text-[13px] font-bold" style={{ background: initialsColor(nm), color: "#fff" }}>{nm.slice(0, 1).toUpperCase()}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-semibold truncate">{nm}{me ? " (te)" : ""}</p>
+                      <p className="text-[11px]" style={{ color: "var(--muted)" }}>aktív: {timeAgo(m.lastSeen)}</p>
+                    </div>
+                    <button onClick={() => startEdit(m)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Átnevezés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
+                    <button onClick={() => { if (confirm(`Biztosan eltávolítod: ${nm}?`)) onRemoveMember(m.id); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Eltávolítás"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>Aki még aktívan használja az appot, a következő megnyitáskor újra megjelenhet.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================= SHOPPING ================= */
+function FilterModal({ authorNames, myName, hidden, onToggle, onAll, onNone, onClose }) {
+  const rows = [...authorNames.map((n) => ({ key: n, label: n + (n === myName ? " (én)" : "") })), { key: "__shared", label: "Közös" }];
+  const allVisible = rows.every((r) => !hidden[r.key]);
+  const Row = ({ label, on, onClick, strong }) => (
+    <button type="button" onClick={onClick} className="w-full flex items-center gap-3 py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
+      <span className="checkbox" data-on={on}>{on && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}</span>
+      <span className="text-[15px]" style={{ fontWeight: strong ? 700 : 600 }}>{label}</span>
+    </button>
+  );
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card p-4 w-full" style={{ maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-display text-[20px] font-semibold">Kiket látsz?</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg" style={{ color: "var(--muted)" }} aria-label="Bezárás"><Icon name="x" className="w-5 h-5" /></button>
+        </div>
+        <p className="text-[12px] mb-1" style={{ color: "var(--muted)" }}>Pipáld ki, kinek a tételeit szeretnéd látni.</p>
+        <div>
+          <Row label="Mind" on={allVisible} strong onClick={() => allVisible ? onNone() : onAll()} />
+          {rows.map((r) => <Row key={r.key} label={r.label} on={!hidden[r.key]} onClick={() => onToggle(r.key)} />)}
+        </div>
+        <button onClick={onClose} className="btn-accent w-full py-2.5 text-[14px] mt-3">Kész</button>
+      </div>
+    </div>
+  );
+}
+
+function TransferForm({ item, onSubmit, onCancel }) {
+  const [payer, setPayer] = useState(getName());
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState(item.name + (item.qty ? ` (${item.qty})` : ""));
+  const ref = useRef(null);
+  const busy = useRef(false);
+  const submit = (e) => {
+    e.preventDefault();
+    if (busy.current) return;
+    if (!payer.trim()) { ref.current && ref.current.focus(); return; }
+    busy.current = true;
+    onSubmit({ payer: payer.trim(), amount: String(amount).trim() ? Math.round(Number(amount)) || 0 : null, note: note.trim() });
+  };
+  return (
+    <form onSubmit={submit} className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}>
+      <p className="text-[12px] pt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
+        <Icon name="wallet" className="w-3.5 h-3.5 flex-none" /> Valaki másnak vetted meg? Told át a tartozásokhoz.
+      </p>
+      <input ref={ref} className="field" placeholder="Ki fizette ki? (pl. Anna)" value={payer} onChange={(e) => setPayer(e.target.value)} />
+      <input className="field tnum" inputMode="numeric" placeholder="Mennyibe került? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
+      <input className="field" placeholder="Megjegyzés" value={note} onChange={(e) => setNote(e.target.value)} />
+      <div className="flex gap-2">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Áthozás tartozásba</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </form>
+  );
+}
+
+function OwnerPicker({ value, onChange, memberNames }) {
+  const mine = getName();
+  const opts = [...new Set([...(memberNames || []), value].filter(Boolean))].sort((a, b) => a.localeCompare(b, "hu"));
+  const chip = (val, label) => (
+    <button type="button" key={val || "__shared"} onClick={() => onChange(val)}
+      className="px-2.5 py-1 rounded-full text-[12px] font-semibold"
+      style={value === val ? { background: "var(--accent)", color: "var(--accent-ink)" } : { background: "var(--surface-2)", color: "var(--ink)" }}>{label}</button>
+  );
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {chip("", "👥 Közös")}
+      {opts.map((n) => chip(n, n + (n === mine ? " (én)" : "")))}
+    </div>
+  );
+}
+
+function ShopEditForm({ item, cats, memberNames, onManageCats, onSave, onCancel, onToInventory, onTransferClick }) {
+  const [name, setName] = useState(item.name || "");
+  const [qty, setQty] = useState(item.qty || "");
+  const [catId, setCatId] = useState(item.catId || (findCat(cats, item) ? findCat(cats, item).id : ""));
+  const [owner, setOwner] = useState(item.owner || "");
+  const [img, setImg] = useState(item.img || null);
+  const [store, setStore] = useState(item.store || "");
+  const [link, setLink] = useState(item.link || "");
+  const ref = useRef(null);
+  const submit = (e) => { e.preventDefault(); if (!name.trim()) { ref.current && ref.current.focus(); return; } onSave({ name: name.trim(), qty: qty.trim(), catId, owner, img, store: store.trim(), link: link.trim() }); };
+  return (
+    <form onSubmit={submit} className="card p-3.5 pop">
+      <div className="space-y-2.5">
+        <input ref={ref} className="field" placeholder="Név" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="field" placeholder="Mennyiség — opcionális" value={qty} onChange={(e) => setQty(e.target.value)} />
+        <div>
+          <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kié?</p>
+          <OwnerPicker value={owner} onChange={setOwner} memberNames={memberNames} />
+        </div>
+        <div>
+          <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kategória</p>
+          <CategoryPicker categories={cats} value={catId} onChange={setCatId} onManage={onManageCats} />
+        </div>
+        <ExtraFields store={store} setStore={setStore} link={link} setLink={setLink} idSuffix="shopedit" />
+        <div>
+          <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Fotó (opcionális)</p>
+          <ImagePicker value={img} onChange={setImg} />
+        </div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Mentés</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+      <div className="flex gap-2 mt-2">
+        <button type="button" onClick={onToInventory} className="flex-1 py-2 rounded-xl text-[13px] font-semibold border inline-flex items-center justify-center gap-1.5" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>
+          <Icon name="box" className="w-[16px] h-[16px]" /> Készletbe
+        </button>
+        <button type="button" onClick={onTransferClick} className="flex-1 py-2 rounded-xl text-[13px] font-semibold border inline-flex items-center justify-center gap-1.5" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>
+          <Icon name="wallet" className="w-[16px] h-[16px]" /> Tartozásba
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ShoppingView({ items, cats, memberNames, onManageCats, onAdd, onEdit, onToInventory, onToggle, onRemove, onClear, onClearDone, onDoneToInventory, onTransfer, onToast }) {
+  const [q, setQ] = useState("");
+  const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem("lakotarsak.shopHidden") || "{}") || {}; } catch (e) { return {}; } });
+  const setHiddenPersist = (h) => { setHidden(h); try { localStorage.setItem("lakotarsak.shopHidden", JSON.stringify(h)); } catch (e) {} };
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [qty, setQty] = useState("");
+  const [catId, setCatId] = useState("");
+  const [owner, setOwner] = useState("");
+  const [img, setImg] = useState(null);
+  const [store, setStore] = useState("");
+  const [link, setLink] = useState("");
+  const [transferId, setTransferId] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [showDone, setShowDone] = useState(true);
+  const [more, setMore] = useState(false);
+  const [groupBy, setGroupBy] = useState(() => { try { return localStorage.getItem("lakotarsak.shopGroup") || "none"; } catch (e) { return "none"; } });
+  const changeGroup = (g) => { setGroupBy(g); try { localStorage.setItem("lakotarsak.shopGroup", g); } catch (e) {} };
+  const nameRef = useRef(null);
+  const busy = useRef(false);
+  const reset = () => { setName(""); setQty(""); setCatId(""); setOwner(""); setImg(null); setStore(""); setLink(""); setMore(false); };
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) { nameRef.current && nameRef.current.focus(); return; }
+    if (busy.current) return;
+    busy.current = true; setTimeout(() => { busy.current = false; }, 400);
+    onAdd({ name: name.trim(), qty: qty.trim(), catId, owner, img, store: store.trim(), link: link.trim(), done: false });
+    reset();
+  };
+  const doTransfer = (item, debt) => {
+    onTransfer(debt);
+    if (!item.done) onToggle(item);
+    setTransferId(null);
+    onToast && onToast("Áthozva a tartozásokhoz ✓");
+  };
+
+  const myName = getName();
+  const bucketKey = (i) => (i.owner || "").trim() ? i.owner.trim() : "__shared";
+  const ownerNames = [...new Set([...(memberNames || []), ...items.map((i) => (i.owner || "").trim()).filter(Boolean)])].sort((a, b) => a.localeCompare(b, "hu"));
+  const allKeys = [...ownerNames, "__shared"];
+  const toggleKey = (key) => setHiddenPersist({ ...hidden, [key]: !hidden[key] });
+  const showAll = () => setHiddenPersist({});
+  const showNone = () => { const h = {}; allKeys.forEach((k) => { h[k] = true; }); setHiddenPersist(h); };
+  const visibleKeys = allKeys.filter((k) => !hidden[k]);
+  const filterSummary = visibleKeys.length === allKeys.length ? "Mind" : visibleKeys.length === 0 ? "Senki" : visibleKeys.map((k) => k === "__shared" ? "Közös" : (k === myName ? "Én" : k)).join(", ");
+  const filtered = items.filter((i) => {
+    if (hidden[bucketKey(i)]) return false;
+    if (q.trim() && !(i.name || "").toLowerCase().includes(q.trim().toLowerCase())) return false;
+    return true;
+  });
+  const active = filtered.filter((i) => !i.done);
+  const done = filtered.filter((i) => i.done);
+
+  const renderItem = (i) => {
+    if (editId === i.id) return (
+      <li key={i.id}>
+        <ShopEditForm item={i} cats={cats} memberNames={memberNames} onManageCats={onManageCats}
+          onSave={(patch) => { onEdit(i.id, patch); setEditId(null); }}
+          onCancel={() => setEditId(null)}
+          onToInventory={() => { onToInventory(i); setEditId(null); }}
+          onTransferClick={() => { setEditId(null); setTransferId(i.id); }} />
+      </li>
+    );
+    const c = findCat(cats, i);
+    return (
+    <li key={i.id} className={"card overflow-hidden" + (c ? " border-l-4" : "")} style={c ? { borderLeftColor: c.color, background: catBg(c) } : null}>
+      <div className="p-2 flex items-center gap-2.5">
+        <button className="checkbox" data-on={i.done} onClick={() => onToggle(i)} aria-label={i.done ? "Vissza" : "Megvettem"}>
+          {i.done && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}
+        </button>
+        {i.img ? <Thumb src={i.img} /> : <ItemAvatar cat={c} name={i.name} />}
+        <div className="flex-1 min-w-0">
+          <p className={"font-semibold text-[15px] leading-tight truncate " + (i.done ? "line-through" : "")} style={{ color: i.done ? "var(--muted)" : "var(--ink)" }}>{i.name}</p>
+          <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
+            {i.qty && <span className="text-[12px] flex-none" style={{ color: "var(--muted)" }}>{i.qty}</span>}
+            {i.from === "raktar" && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>raktárból</span>
+            )}
+            {c && groupBy !== "category" && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-none" style={{ background: tint(c.color, 0.14), color: c.color }}>{c.icon} {c.name}</span>
+            )}
+            {i.owner && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}><Icon name="person" className="w-3 h-3" /> {i.owner}</span>
+            )}
+            {i.store && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>🏪 {i.store}</span>
+            )}
+            {i.link && (
+              <a href={/^https?:\/\//i.test(i.link) ? i.link : "https://" + i.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: tint("#1c7ed6", 0.16), color: "#1c7ed6" }}>🔗</a>
+            )}
+            {cloud && (i.by || i.createdAt) && (
+              <span className="text-[11px] truncate" style={{ color: "var(--muted)" }}>{[i.by, timeAgo(i.createdAt)].filter(Boolean).join(" · ")}</span>
+            )}
+          </div>
+        </div>
+        <button onClick={() => { setEditId(i.id); setTransferId(null); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés">
+          <Icon name="edit" className="w-[18px] h-[18px]" />
+        </button>
+        <button onClick={() => onRemove(i.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés">
+          <Icon name="trash" className="w-[18px] h-[18px]" />
+        </button>
+      </div>
+      {transferId === i.id && (
+        <TransferForm item={i} onSubmit={(debt) => doTransfer(i, debt)} onCancel={() => setTransferId(null)} />
+      )}
+    </li>
+    );
+  };
+
+  const catSections = () => {
+    const groups = new Map();
+    active.forEach((i) => {
+      const c = findCat(cats, i);
+      const key = c ? c.id : "__none";
+      if (!groups.has(key)) groups.set(key, { cat: c, items: [] });
+      groups.get(key).items.push(i);
+    });
+    const arr = [...groups.values()];
+    arr.sort((a, b) => { if (!a.cat) return 1; if (!b.cat) return -1; return (a.cat.sort || 0) - (b.cat.sort || 0); });
+    return arr;
+  };
+
+  return (
+    <div className="pop">
+      <SectionHead title="Bevásárlólista"
+        hint={items.length ? `${active.length} tétel hátra${done.length ? ` · ${done.length} kész` : ""}` : "Mit kell venni?"}
+        action={
+          <button onClick={() => setOpen((o) => !o)}
+            className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
+            <Icon name="plus" className="w-[18px] h-[18px]" /> Új tétel
+          </button>
+        } />
+      {open && (
+        <form onSubmit={submit} className="card p-3.5 mb-4 pop">
+          <div className="space-y-2.5">
+            <input ref={nameRef} className="field" placeholder="Mit? (pl. Kenyér)" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="field" placeholder="Mennyit? (pl. 1 db) — opcionális" value={qty} onChange={(e) => setQty(e.target.value)} />
+            {more && (
+              <React.Fragment>
+                <div>
+                  <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kié?</p>
+                  <OwnerPicker value={owner} onChange={setOwner} memberNames={memberNames} />
+                </div>
+                <div>
+                  <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kategória</p>
+                  <CategoryPicker categories={cats} value={catId} onChange={setCatId} onManage={onManageCats} />
+                </div>
+                <ExtraFields store={store} setStore={setStore} link={link} setLink={setLink} idSuffix="shopadd" />
+                <div>
+                  <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Fotó (opcionális)</p>
+                  <ImagePicker value={img} onChange={setImg} />
+                </div>
+              </React.Fragment>
+            )}
+          </div>
+          <button type="button" onClick={() => setMore((m) => !m)} className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+            <Icon name="chevron" className="w-4 h-4" style={{ transform: more ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+            {more ? "Kevesebb" : "Több részlet (kié, kategória, bolt, link, fotó)"}
+          </button>
+          <div className="flex gap-2 mt-3">
+            <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Hozzáadás</button>
+            <button type="button" onClick={() => { setOpen(false); reset(); }} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+          </div>
+        </form>
+      )}
+      {items.length > 3 && (
+        <div className="relative mb-3">
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }}><Icon name="search" className="w-4 h-4" /></span>
+          <input className="field" style={{ paddingLeft: 34 }} placeholder="Keresés…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      )}
+      {cloud && items.length > 0 && (
+        <button type="button" onClick={() => setFilterOpen(true)}
+          className="w-full mb-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 border"
+          style={{ borderColor: "var(--line)", background: "var(--surface)", color: visibleKeys.length === allKeys.length ? "var(--muted)" : "var(--accent)" }}>
+          <Icon name="person" className="w-[16px] h-[16px] flex-none" />
+          <span className="truncate">Kié: {filterSummary}</span>
+        </button>
+      )}
+      {items.length > 0 && (
+        <div className="seg mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <button type="button" onClick={() => changeGroup("none")}
+            style={groupBy === "none" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Egyszerű</button>
+          <button type="button" onClick={() => changeGroup("category")}
+            style={groupBy === "category" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Kategória szerint</button>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <Empty>A lista üres. Koppints az <b>Új tétel</b> gombra.</Empty>
+      ) : filtered.length === 0 ? (
+        <Empty>{q.trim() ? `Nincs találat erre: „${q}”.` : "Nincs a szűrésnek megfelelő tétel. Módosítsd a „Kié” szűrőt."}</Empty>
+      ) : groupBy === "category" ? (
+        <div className="space-y-5">
+          {catSections().map((s) => (
+            <div key={s.cat ? s.cat.id : "__none"}>
+              <div className="text-[13px] font-semibold mb-2 px-1 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
+                <span aria-hidden="true">{s.cat ? s.cat.icon : "📦"}</span>{s.cat ? s.cat.name : "Egyéb"}
+              </div>
+              <ul className="space-y-1.5">{s.items.map(renderItem)}</ul>
+            </div>
+          ))}
+          {showDone && done.length > 0 && (
+            <div>
+              <div className="text-[13px] font-semibold mb-2 px-1" style={{ color: "var(--muted)" }}>Kész</div>
+              <ul className="space-y-1.5">{done.map(renderItem)}</ul>
+            </div>
+          )}
+        </div>
+      ) : (
+        <ul className="space-y-1.5">{(showDone ? [...active, ...done] : active).map(renderItem)}</ul>
+      )}
+      {done.length > 0 && (
+        <div className="mt-3 px-1 text-[13px] space-y-2">
+          <button onClick={() => setShowDone((s) => !s)} className="inline-flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent)" }}>
+            <Icon name={showDone ? "eyeoff" : "eye"} className="w-4 h-4" /> {showDone ? "Kész elrejtése" : "Kész mutatása"} ({done.length})
+          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={onDoneToInventory} className="inline-flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent)" }}>
+              <Icon name="box" className="w-4 h-4" /> Kész a készletbe
+            </button>
+            <button onClick={onClearDone} className="font-semibold" style={{ color: "var(--muted)" }}>Kész törlése</button>
+          </div>
+        </div>
+      )}
+      {items.length > 0 && (
+        <button onClick={onClear} className="mt-4 w-full py-3 rounded-xl text-[14px] font-semibold inline-flex items-center justify-center gap-2 border"
+          style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
+          <Icon name="trash" className="w-[18px] h-[18px]" /> Egész lista törlése
+        </button>
+      )}
+      {filterOpen && <FilterModal authorNames={ownerNames} myName={myName} hidden={hidden} onToggle={toggleKey} onAll={showAll} onNone={showNone} onClose={() => setFilterOpen(false)} />}
+    </div>
+  );
+}
+
+/* ================= INVENTORY ================= */
+const STATUS = {
+  green: { label: "Van elég", dot: "var(--green)", bg: "var(--green-bg)", line: "var(--green-line)" },
+  amber: { label: "Kevés", dot: "var(--amber)", bg: "var(--amber-bg)", line: "var(--amber-line)" },
+  red:   { label: "Elfogyott", dot: "var(--red)", bg: "var(--red-bg)", line: "var(--red-line)" },
+};
+function InvForm({ initial, onSave, onCancel, cats, memberNames, onManageCats }) {
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [qty, setQty] = useState(initial ? initial.qty : "");
+  const [status, setStatus] = useState(initial ? initial.status : "green");
+  const [catId, setCatId] = useState(initial ? (initial.catId || (findCat(cats, initial) ? findCat(cats, initial).id : "")) : "");
+  const [owner, setOwner] = useState(initial ? (initial.owner || "") : "");
+  const [img, setImg] = useState(initial ? (initial.img || null) : null);
+  const [store, setStore] = useState(initial ? (initial.store || "") : "");
+  const [link, setLink] = useState(initial ? (initial.link || "") : "");
+  const nameRef = useRef(null);
+  const busy = useRef(false);
+  const mine = getName();
+  const [more, setMore] = useState(!!initial);
+  const ownerOpts = [...new Set([...(memberNames || []), owner].filter(Boolean))].sort((a, b) => a.localeCompare(b, "hu"));
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) { nameRef.current && nameRef.current.focus(); return; }
+    if (busy.current) return; busy.current = true;
+    onSave({ name: name.trim(), qty: qty.trim(), status, catId, owner, img, store: store.trim(), link: link.trim() });
+  };
+  const ownerChip = (val, label) => (
+    <button type="button" key={val || "__shared"} onClick={() => setOwner(val)}
+      className="px-2.5 py-1 rounded-full text-[12px] font-semibold"
+      style={owner === val ? { background: "var(--accent)", color: "var(--accent-ink)" } : { background: "var(--surface-2)", color: "var(--ink)" }}>
+      {label}
+    </button>
+  );
+  return (
+    <form onSubmit={submit} className="card p-3.5 mb-4 pop">
+      <div className="space-y-2.5">
+        <input ref={nameRef} className="field" placeholder="Mi? (pl. Liszt)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="field" placeholder="Mennyi / szint (pl. fél kg) — opcionális" value={qty} onChange={(e) => setQty(e.target.value)} />
+      </div>
+      <div className="seg mt-3">
+        {Object.entries(STATUS).map(([key, s]) => (
+          <button type="button" key={key} onClick={() => setStatus(key)}
+            style={status === key ? { background: s.bg, color: s.dot, boxShadow: `inset 0 0 0 1.5px ${s.line}` } : { color: "var(--muted)" }}>
+            <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style={{ background: s.dot }} />{s.label}
+          </button>
+        ))}
+      </div>
+      {more && (
+        <div className="space-y-2.5 mt-3">
+          <div>
+            <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kié?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ownerChip("", "👥 Közös")}
+              {ownerOpts.map((n) => ownerChip(n, n + (n === mine ? " (én)" : "")))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kategória</p>
+            <CategoryPicker categories={cats} value={catId} onChange={setCatId} onManage={onManageCats} />
+          </div>
+          <ExtraFields store={store} setStore={setStore} link={link} setLink={setLink} idSuffix="inv" />
+          <div>
+            <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Fotó (opcionális)</p>
+            <ImagePicker value={img} onChange={setImg} />
+          </div>
+        </div>
+      )}
+      <button type="button" onClick={() => setMore((m) => !m)} className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+        <Icon name="chevron" className="w-4 h-4" style={{ transform: more ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+        {more ? "Kevesebb" : "Több részlet (kié, kategória, bolt, link, fotó)"}
+      </button>
+      <div className="flex gap-2 mt-3">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{initial ? "Mentés" : "Hozzáadás"}</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </form>
+  );
+}
+function InventoryView({ items, cats, memberNames, onManageCats, onAdd, onSave, onRemove, onClear }) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [q, setQ] = useState("");
+  const [collapsed, setCollapsed] = useState({});
+  const toggleCollapse = (key) => setCollapsed((p) => ({ ...p, [key]: !p[key] }));
+  const [groupBy, setGroupBy] = useState(() => { try { return localStorage.getItem("lakotarsak.invGroup") || "status"; } catch (e) { return "status"; } });
+  const changeGroup = (g) => { setGroupBy(g); try { localStorage.setItem("lakotarsak.invGroup", g); } catch (e) {} };
+  const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem("lakotarsak.invHidden") || "{}") || {}; } catch (e) { return {}; } });
+  const setHiddenPersist = (h) => { setHidden(h); try { localStorage.setItem("lakotarsak.invHidden", JSON.stringify(h)); } catch (e) {} };
+  const [filterOpen, setFilterOpen] = useState(false);
+  const myName = getName();
+  const bucketKey = (i) => (i.owner || "").trim() ? i.owner.trim() : "__shared";
+  const ownerNames = [...new Set([...(memberNames || []), ...items.map((i) => (i.owner || "").trim()).filter(Boolean)])].sort((a, b) => a.localeCompare(b, "hu"));
+  const allKeys = [...ownerNames, "__shared"];
+  const toggleKey = (key) => setHiddenPersist({ ...hidden, [key]: !hidden[key] });
+  const showAll = () => setHiddenPersist({});
+  const showNone = () => { const h = {}; allKeys.forEach((k) => { h[k] = true; }); setHiddenPersist(h); };
+  const visibleKeys = allKeys.filter((k) => !hidden[k]);
+  const filterSummary = visibleKeys.length === allKeys.length ? "Mind" : visibleKeys.length === 0 ? "Senki" : visibleKeys.map((k) => k === "__shared" ? "Közös" : (k === myName ? "Én" : k)).join(", ");
+  const setStat = (i, k) => {
+    if (i.status === k) return;
+    onSave(i.id, { name: i.name, qty: i.qty || "", status: k, catId: i.catId || "", owner: i.owner || "" });
+  };
+  const renderItem = (i) => {
+    if (editId === i.id) return <li key={i.id}><InvForm initial={i} cats={cats} memberNames={memberNames} onManageCats={onManageCats} onSave={(d) => { onSave(i.id, d); setEditId(null); }} onCancel={() => setEditId(null)} /></li>;
+    const c = findCat(cats, i);
+    return (
+      <li key={i.id} className="card p-2 flex items-center gap-2.5 border-l-4" style={{ borderLeftColor: c ? c.color : STATUS[i.status].dot, background: catBg(c) }}>
+        {i.img ? <Thumb src={i.img} /> : <ItemAvatar cat={c} name={i.name} />}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-[15px] leading-tight truncate flex-1">{i.name}</p>
+            <div className="flex items-center gap-1.5 flex-none" style={{ paddingTop: 3, paddingBottom: 3 }}>
+              {["green", "amber", "red"].map((k) => (
+                <button key={k} type="button" onClick={() => setStat(i, k)} title={STATUS[k].label} aria-label={STATUS[k].label}
+                  style={{ width: 18, height: 18, borderRadius: "50%", flex: "none", padding: 0, background: STATUS[k].dot,
+                    opacity: i.status === k ? 1 : 0.3,
+                    boxShadow: i.status === k ? `0 0 0 2px var(--surface), 0 0 0 3px ${STATUS[k].dot}` : "none" }} />
+              ))}
+            </div>
+          </div>
+          {(i.qty || i.owner || i.store || i.link || (groupBy === "status" && c)) && (
+            <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
+              {groupBy === "status" && c && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-none" style={{ background: tint(c.color, 0.14), color: c.color }}>{c.icon} {c.name}</span>
+              )}
+              {i.owner && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}><Icon name="person" className="w-3 h-3" /> {i.owner}</span>
+              )}
+              {i.store && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>🏪 {i.store}</span>
+              )}
+              {i.link && (
+                <a href={/^https?:\/\//i.test(i.link) ? i.link : "https://" + i.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: tint("#1c7ed6", 0.16), color: "#1c7ed6" }}>🔗</a>
+              )}
+              {i.qty && <span className="text-[12px] truncate" style={{ color: "var(--muted)" }}>{i.qty}</span>}
+            </div>
+          )}
+        </div>
+        <button onClick={() => { setEditId(i.id); setAdding(false); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Módosítás"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
+        <button onClick={() => onRemove(i.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+      </li>
+    );
+  };
+
+  const filtered = items.filter((i) => {
+    if (hidden[bucketKey(i)]) return false;
+    if (q.trim() && !(i.name || "").toLowerCase().includes(q.trim().toLowerCase())) return false;
+    return true;
+  });
+  let sections = [];
+  if (groupBy === "category") {
+    const sev = { red: 0, amber: 1, green: 2 };
+    const groups = new Map();
+    filtered.forEach((i) => { const c = findCat(cats, i); const key = c ? c.id : "__none"; if (!groups.has(key)) groups.set(key, { cat: c, items: [] }); groups.get(key).items.push(i); });
+    sections = [...groups.values()].map((g) => ({
+      key: g.cat ? g.cat.id : "__none", label: g.cat ? g.cat.name : "Egyéb", dot: null, icon: g.cat ? g.cat.icon : "📦", cat: g.cat,
+      items: g.items.slice().sort((a, b) => (sev[a.status] - sev[b.status]) || ((b.createdAt || 0) - (a.createdAt || 0))),
+    }));
+    sections.sort((a, b) => { if (!a.cat) return 1; if (!b.cat) return -1; return (a.cat.sort || 0) - (b.cat.sort || 0); });
+  } else {
+    sections = ["red", "amber", "green"].map((key) => ({
+      key, label: STATUS[key].label, dot: STATUS[key].dot, icon: null,
+      items: filtered.filter((i) => i.status === key),
+    })).filter((s) => s.items.length);
+  }
+
+  return (
+    <div className="pop">
+      <SectionHead title="Otthoni készlet" hint={items.length ? "Koppints a színes pöttyre: van elég / kevés / elfogyott" : "Kövesd, miből mennyi van"}
+        action={
+          <button onClick={() => { setAdding((o) => !o); setEditId(null); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
+            <Icon name="plus" className="w-[18px] h-[18px]" /> Új tétel
+          </button>
+        } />
+      {items.length > 3 && (
+        <div className="relative mb-3">
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }}><Icon name="search" className="w-4 h-4" /></span>
+          <input className="field" style={{ paddingLeft: 34 }} placeholder="Keresés…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      )}
+      {cloud && items.length > 0 && (
+        <button type="button" onClick={() => setFilterOpen(true)}
+          className="w-full mb-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold inline-flex items-center gap-2 border"
+          style={{ borderColor: "var(--line)", background: "var(--surface)", color: visibleKeys.length === allKeys.length ? "var(--muted)" : "var(--accent)" }}>
+          <Icon name="person" className="w-[16px] h-[16px] flex-none" />
+          <span className="truncate">Kié: {filterSummary}</span>
+        </button>
+      )}
+      {items.length > 0 && (
+        <div className="seg mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <button type="button" onClick={() => changeGroup("status")}
+            style={groupBy === "status" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Színek szerint</button>
+          <button type="button" onClick={() => changeGroup("category")}
+            style={groupBy === "category" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Kategória szerint</button>
+        </div>
+      )}
+      {adding && <InvForm cats={cats} memberNames={memberNames} onManageCats={onManageCats} onSave={(d) => { onAdd(d); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {items.length === 0 && !adding ? (
+        <Empty>Még nincs készlet-tétel. Add hozzá az elsőt!</Empty>
+      ) : filtered.length === 0 ? (
+        <Empty>{q.trim() ? `Nincs találat erre: „${q}”.` : "Nincs a szűrésnek megfelelő tétel. Módosítsd a „Kié” szűrőt."}</Empty>
+      ) : (
+        <div className="space-y-5">
+          {sections.map((s) => (
+            <div key={s.key}>
+              <button onClick={() => toggleCollapse(s.key)} className="w-full flex items-center gap-2 mb-2 px-1">
+                <Icon name="chevron" className="w-4 h-4 flex-none" style={{ color: "var(--muted)", transform: collapsed[s.key] ? "rotate(-90deg)" : "none", transition: "transform .15s" }} />
+                {s.dot && <span className="w-2.5 h-2.5 rounded-full flex-none" style={{ background: s.dot }} />}
+                {s.icon && <span className="text-[15px] leading-none">{s.icon}</span>}
+                <span className="text-[13px] font-semibold" style={{ color: "var(--muted)" }}>{s.label}</span>
+                <span className="text-[11px]" style={{ color: "var(--muted)" }}>{s.items.length}</span>
+              </button>
+              {!collapsed[s.key] && <ul className="space-y-1.5">{s.items.map(renderItem)}</ul>}
+            </div>
+          ))}
+        </div>
+      )}
+      {items.length > 0 && (
+        <button onClick={onClear} className="mt-5 w-full py-3 rounded-xl text-[14px] font-semibold inline-flex items-center justify-center gap-2 border"
+          style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
+          <Icon name="trash" className="w-[18px] h-[18px]" /> Készlet ürítése
+        </button>
+      )}
+      {filterOpen && <FilterModal authorNames={ownerNames} myName={myName} hidden={hidden} onToggle={toggleKey} onAll={showAll} onNone={showNone} onClose={() => setFilterOpen(false)} />}
+    </div>
+  );
+}
+
+/* ================= DEBTS ================= */
+function DebtsView({ items, onAdd, onSettle, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const [payer, setPayer] = useState(getName());
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [leaving, setLeaving] = useState({});
+  const [sumOpen, setSumOpen] = useState(false);
+  const payerRef = useRef(null);
+  const busy = useRef(false);
+  const reset = () => { setPayer(getName()); setAmount(""); setNote(""); };
+  const submit = (e) => {
+    e.preventDefault();
+    if (!payer.trim()) { payerRef.current && payerRef.current.focus(); return; }
+    if (busy.current) return; busy.current = true; setTimeout(() => { busy.current = false; }, 400);
+    onAdd({ payer: payer.trim(), amount: String(amount).trim() ? Math.round(Number(amount)) || 0 : null, note: note.trim() });
+    reset();
+  };
+  const settle = (id) => {
+    setLeaving((l) => ({ ...l, [id]: true }));
+    setTimeout(() => { onSettle(id); setLeaving((l) => { const n = { ...l }; delete n[id]; return n; }); }, 480);
+  };
+  const totals = {};
+  items.forEach((i) => { const k = (i.payer || "?").trim() || "?"; totals[k] = (totals[k] || 0) + (Number(i.amount) || 0); });
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="pop">
+      <SectionHead title="Ki kinek tartozik" hint={items.length ? `${items.length} nyitott tartozás` : "Nyitott tartozások"}
+        action={
+          <button onClick={() => { setOpen((o) => !o); setPayer(getName()); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
+            <Icon name="plus" className="w-[18px] h-[18px]" /> Új
+          </button>
+        } />
+      {open && (
+        <form onSubmit={submit} className="card p-3.5 mb-4 pop space-y-2.5">
+          <input ref={payerRef} className="field" placeholder="Ki fizette? (pl. Anna)" value={payer} onChange={(e) => setPayer(e.target.value)} />
+          <input className="field tnum" inputMode="numeric" placeholder="Mennyit? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
+          <input className="field" placeholder="Miért? (pl. közös bevásárlás) — opcionális" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="flex gap-2 pt-0.5">
+            <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Hozzáadás</button>
+            <button type="button" onClick={() => { setOpen(false); reset(); }} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+          </div>
+        </form>
+      )}
+      {items.length > 1 && (
+        <div className="mb-3">
+          <button onClick={() => setSumOpen((o) => !o)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+            <Icon name="chevron" className="w-4 h-4" style={{ transform: sumOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} /> Összegzés személyenként
+          </button>
+          {sumOpen && (
+            <div className="card p-3 mt-2 space-y-1.5">
+              {entries.map(([p, amt]) => (
+                <div key={p} className="flex justify-between text-[14px]"><span className="truncate">{p}</span><span className="font-semibold tnum">{forint(amt)}</span></div>
+              ))}
+              <p className="text-[11px] pt-1" style={{ color: "var(--muted)" }}>Összesen kifizetve, ami még rendezésre vár.</p>
+            </div>
+          )}
+        </div>
+      )}
+      {items.length === 0 ? (
+        <Empty>Nincs nyitott tartozás. 🎉</Empty>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((i) => {
+            const gone = leaving[i.id];
+            return (
+              <li key={i.id} className={"card p-3 flex items-center gap-3 " + (gone ? "row-leave" : "")}>
+                <button className="checkbox" data-on={gone} onClick={() => !gone && settle(i.id)} aria-label="Rendezve">
+                  {gone && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}
+                </button>
+                <div className="flex-1 min-w-0" style={gone ? { color: "var(--muted)" } : null}>
+                  <p className="text-[14px] leading-snug">
+                    <span className="font-semibold">{i.payer}</span>
+                    {i.amount ? <React.Fragment><span style={{ color: "var(--muted)" }}> fizetett </span><span className="font-semibold tnum">{forint(i.amount)}</span></React.Fragment> : null}
+                  </p>
+                  <p className="text-[13px] mt-0.5 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
+                    <Icon name="arrow" className="w-3.5 h-3.5 flex-none" />
+                    <span className="truncate">{i.note ? i.note : "rendezendő"}</span>
+                  </p>
+                  <Meta by={i.by} ts={i.createdAt} />
+                </div>
+                <button onClick={() => onRemove(i.id)} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ================= SZABADIDŐ ================= */
+function BoardGameForm({ initial, onSave, onCancel }) {
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [minP, setMinP] = useState(initial ? (initial.minPlayers || "") : "");
+  const [maxP, setMaxP] = useState(initial ? (initial.maxPlayers || "") : "");
+  const [timeMins, setTimeMins] = useState(initial ? (initial.timeMins || "") : "");
+  const [img, setImg] = useState(initial ? (initial.img || null) : null);
+  const [more, setMore] = useState(!!initial);
+  const nameRef = useRef(null);
+  const busy = useRef(false);
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) { nameRef.current && nameRef.current.focus(); return; }
+    if (busy.current) return; busy.current = true;
+    onSave({ name: name.trim(), minPlayers: minP ? Number(minP) : null, maxPlayers: maxP ? Number(maxP) : null, timeMins: timeMins ? Number(timeMins) : null, img });
+  };
+  return (
+    <form onSubmit={submit} className="card p-3.5 mb-4 pop">
+      <input ref={nameRef} className="field" placeholder="Játék neve (pl. Catan)" value={name} onChange={(e) => setName(e.target.value)} />
+      {more && (
+        <div className="space-y-2.5 mt-3">
+          <div className="flex gap-2">
+            <input className="field tnum" inputMode="numeric" placeholder="Min fő" value={minP} onChange={(e) => setMinP(e.target.value.replace(/[^\d]/g, ""))} />
+            <input className="field tnum" inputMode="numeric" placeholder="Max fő" value={maxP} onChange={(e) => setMaxP(e.target.value.replace(/[^\d]/g, ""))} />
+            <input className="field tnum" inputMode="numeric" placeholder="Perc" value={timeMins} onChange={(e) => setTimeMins(e.target.value.replace(/[^\d]/g, ""))} />
+          </div>
+          <div>
+            <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Fotó (opcionális)</p>
+            <ImagePicker value={img} onChange={setImg} />
+          </div>
+        </div>
+      )}
+      <button type="button" onClick={() => setMore((m) => !m)} className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+        <Icon name="chevron" className="w-4 h-4" style={{ transform: more ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+        {more ? "Kevesebb" : "Több részlet (fő, idő, fotó)"}
+      </button>
+      <div className="flex gap-2 mt-3">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{initial ? "Mentés" : "Hozzáadás"}</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </form>
+  );
+}
+
+function BoardGamesView({ items, onAdd, onEdit, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [fPlayers, setFPlayers] = useState("");
+  const [fTime, setFTime] = useState("");
+  const [drawn, setDrawn] = useState(null);
+  const matches = (g) => {
+    if (fPlayers) { const n = Number(fPlayers); if (g.minPlayers && n < g.minPlayers) return false; if (g.maxPlayers && n > g.maxPlayers) return false; }
+    if (fTime) { const t = Number(fTime); if (g.timeMins && g.timeMins > t) return false; }
+    return true;
+  };
+  const roll = () => {
+    const pool = items.filter(matches);
+    setDrawn(pool.length ? pool[Math.floor(Math.random() * pool.length)] : { empty: true });
+  };
+  return (
+    <div>
+      <SectionHead title="Társasjátékok" hint={items.length ? items.length + " játék" : "Vidd fel a játékaitokat"}
+        action={<button onClick={() => { setOpen((o) => !o); setEditId(null); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]"><Icon name="plus" className="w-[18px] h-[18px]" /> Új játék</button>} />
+      {open && <BoardGameForm onSave={(d) => { onAdd(d); setOpen(false); }} onCancel={() => setOpen(false)} />}
+      {items.length > 0 && (
+        <div className="card p-3 mb-4">
+          <div className="flex gap-2 mb-3">
+            <input className="field tnum" inputMode="numeric" placeholder="Hány fő? (opc.)" value={fPlayers} onChange={(e) => setFPlayers(e.target.value.replace(/[^\d]/g, ""))} />
+            <input className="field tnum" inputMode="numeric" placeholder="Max perc (opc.)" value={fTime} onChange={(e) => setFTime(e.target.value.replace(/[^\d]/g, ""))} />
+          </div>
+          <button onClick={roll} className="btn-accent w-full py-3 text-[15px]">🎲 Sorsolj!</button>
+          {drawn && (drawn.empty ? (
+            <p className="text-[13px] text-center mt-3" style={{ color: "var(--muted)" }}>Nincs a szűrésnek megfelelő játék.</p>
+          ) : (
+            <div className="mt-3 rounded-xl p-3 flex items-center gap-3 pop" style={{ background: "var(--surface-2)" }}>
+              {drawn.img ? <img src={drawn.img} alt="" className="w-14 h-14 rounded-lg object-cover flex-none" /> : <div className="w-14 h-14 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🎲</div>}
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold" style={{ color: "var(--muted)" }}>Ma ezt játsszátok:</p>
+                <p className="font-display text-[20px] font-semibold truncate">{drawn.name}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {items.length === 0 && !open ? (
+        <Empty>Még nincs társas. Add hozzá az elsőt!</Empty>
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((g) => editId === g.id ? (
+            <li key={g.id}><BoardGameForm initial={g} onSave={(d) => { onEdit(g.id, d); setEditId(null); }} onCancel={() => setEditId(null)} /></li>
+          ) : (
+            <li key={g.id} className="card p-2 flex items-center gap-2.5">
+              {g.img ? <Thumb src={g.img} /> : <div className="w-8 h-8 rounded-lg grid place-items-center flex-none text-base" style={{ background: "var(--surface-2)" }}>🎲</div>}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-[15px] leading-tight truncate">{g.name}</p>
+                {(g.minPlayers || g.maxPlayers || g.timeMins) && (
+                  <p className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>
+                    {(g.minPlayers || g.maxPlayers) ? `👥 ${g.minPlayers || "?"}–${g.maxPlayers || "?"}` : ""}{(g.minPlayers || g.maxPlayers) && g.timeMins ? " · " : ""}{g.timeMins ? `⏱ ${g.timeMins} p` : ""}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => { setEditId(g.id); setOpen(false); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Módosítás"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
+              <button onClick={() => onRemove(g.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Chip({ on, color, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className="px-2.5 py-1 rounded-full text-[12px] font-semibold"
+      style={on ? { background: color || "var(--accent)", color: color ? readableOn(color) : "var(--accent-ink)" } : { background: "var(--surface-2)", color: "var(--ink)" }}>{children}</button>
+  );
+}
+
+function WatchForm({ initial, onSave, onCancel }) {
+  const [title, setTitle] = useState(initial ? initial.title : "");
+  const [kind, setKind] = useState(initial ? (initial.kind || "film") : "film");
+  const [genre, setGenre] = useState(initial ? (initial.genre || "") : "");
+  const [providers, setProviders] = useState(initial ? (initial.providers || []) : []);
+  const [img, setImg] = useState(initial ? (initial.img || null) : null);
+  const [link, setLink] = useState(initial ? (initial.link || "") : "");
+  const busy = useRef(false);
+  const genreList = kind === "sorozat" ? TV_GENRES : MOVIE_GENRES;
+  const toggleProv = (p) => setProviders((a) => a.includes(p) ? a.filter((x) => x !== p) : [...a, p]);
+  const submit = (e) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    if (busy.current) return; busy.current = true;
+    onSave({ title: title.trim(), kind, genre, providers, img, link: link.trim() });
+  };
+  return (
+    <form onSubmit={submit} className="card p-3.5 mb-4 pop space-y-2.5">
+      <input className="field" placeholder="Cím (pl. Trónok harca)" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <div className="flex flex-wrap gap-1.5">
+        {["film", "sorozat", "mese"].map((k) => <Chip key={k} on={kind === k} onClick={() => setKind(k)}>{k === "film" ? "🎬 Film" : k === "sorozat" ? "📺 Sorozat" : "🧸 Mese"}</Chip>)}
+      </div>
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Műfaj (opcionális)</p>
+        <div className="flex flex-wrap gap-1.5">{genreList.map((gn) => <Chip key={gn.id} on={genre === gn.name} onClick={() => setGenre(genre === gn.name ? "" : gn.name)}>{gn.name}</Chip>)}</div>
+      </div>
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Hol nézhető? (opcionális)</p>
+        <div className="flex flex-wrap gap-1.5">{PROVIDERS.map((p) => <Chip key={p} on={providers.includes(p)} onClick={() => toggleProv(p)}>{p}</Chip>)}</div>
+      </div>
+      <input className="field" type="url" inputMode="url" placeholder="Link (opcionális)" value={link} onChange={(e) => setLink(e.target.value)} />
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Plakát / fotó (opcionális)</p>
+        <ImagePicker value={img} onChange={setImg} />
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{initial ? "Mentés" : "Hozzáadás"}</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </form>
+  );
+}
+
+function SwipeDeck({ card, index, total, onDecide }) {
+  const [dx, setDx] = useState(0);
+  const startX = useRef(null);
+  const down = (e) => { startX.current = e.clientX; };
+  const move = (e) => { if (startX.current == null) return; setDx(e.clientX - startX.current); };
+  const up = () => { if (startX.current == null) return; const d = dx; startX.current = null; setDx(0); if (Math.abs(d) > 80) onDecide(d > 0); };
+  const like = dx > 40, nope = dx < -40;
+  return (
+    <div className="card overflow-hidden select-none" style={{ transform: `translateX(${dx}px) rotate(${dx / 25}deg)`, transition: startX.current == null ? "transform .2s ease" : "none", touchAction: "pan-y", cursor: "grab", position: "relative" }}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+      <div style={{ position: "relative", aspectRatio: "2/3", maxHeight: 360, background: "var(--surface-2)" }}>
+        {card.poster ? <img src={card.poster} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} draggable="false" /> : <div className="grid place-items-center h-full text-5xl">🎬</div>}
+        {like && <div style={{ position: "absolute", top: 14, left: 14, padding: "4px 10px", borderRadius: 8, border: "3px solid var(--green)", color: "var(--green)", fontWeight: 800, transform: "rotate(-12deg)", background: "rgba(0,0,0,.25)" }}>TETSZIK</div>}
+        {nope && <div style={{ position: "absolute", top: 14, right: 14, padding: "4px 10px", borderRadius: 8, border: "3px solid var(--red)", color: "var(--red)", fontWeight: 800, transform: "rotate(12deg)", background: "rgba(0,0,0,.25)" }}>PASSZ</div>}
+      </div>
+      <div className="p-3">
+        <p className="font-display text-[18px] font-semibold leading-tight">{card.title}</p>
+        {card.overview ? <p className="text-[12px] mt-1 line-clamp-3" style={{ color: "var(--muted)", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{card.overview}</p> : null}
+        <p className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>{index + 1} / {total}</p>
+      </div>
+    </div>
+  );
+}
+
+function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast }) {
+  const [source, setSource] = useState(() => { try { return (TMDB_KEY && localStorage.getItem("lakotarsak.movSrc")) || (TMDB_KEY ? "tmdb" : "saved"); } catch (e) { return "saved"; } });
+  const setSrc = (s) => { setSource(s); try { localStorage.setItem("lakotarsak.movSrc", s); } catch (e) {} };
+  const [type, setType] = useState("film");
+  const [genre, setGenre] = useState("");
+  const [provs, setProvs] = useState([]);
+  const [round, setRound] = useState(null);
+  const [swipes, setSwipes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [wOpen, setWOpen] = useState(false);
+  const [wEditId, setWEditId] = useState(null);
+  const [spin, setSpin] = useState(null);
+  const [showList, setShowList] = useState(false);
+  const genreList = type === "sorozat" ? TV_GENRES : MOVIE_GENRES;
+  const toggleProv = (p) => setProvs((a) => a.includes(p) ? a.filter((x) => x !== p) : [...a, p]);
+
+  useEffect(() => {
+    if (!cloud) return;
+    const unsub = leisureCol().orderBy("createdAt", "desc").limit(1).onSnapshot(
+      (snap) => setRound(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }),
+      (err) => console.error("rounds", err));
+    return unsub;
+  }, []);
+  useEffect(() => {
+    if (!cloud || !round) { setSwipes([]); return; }
+    const unsub = leisureCol().doc(round.id).collection("swipes").onSnapshot(
+      (snap) => setSwipes(snap.docs.map((x) => ({ id: x.id, ...x.data() }))),
+      (err) => console.error("swipes", err));
+    return unsub;
+  }, [round && round.id]);
+
+  const mySwipe = swipes.find((s) => s.id === DEVICE) || { likes: [], nopes: [] };
+  const decided = new Set([...(mySwipe.likes || []), ...(mySwipe.nopes || [])]);
+  const options = (round && round.options) || [];
+  const remaining = options.filter((o) => !decided.has(o.key));
+  const likeCount = {};
+  swipes.forEach((s) => (s.likes || []).forEach((k) => { likeCount[k] = (likeCount[k] || 0) + 1; }));
+  const matchKey = options.map((o) => o.key).find((k) => likeCount[k] >= 2);
+  const matchOpt = matchKey ? options.find((o) => o.key === matchKey) : null;
+
+  const decide = (liked) => {
+    const card = remaining[0];
+    if (!card || !round) return;
+    const field = liked ? "likes" : "nopes";
+    leisureCol().doc(round.id).collection("swipes").doc(DEVICE)
+      .set({ name: getName(), updatedAt: Date.now(), [field]: firebase.firestore.FieldValue.arrayUnion(card.key) }, { merge: true })
+      .catch(console.error);
+  };
+
+  const buildOptions = async () => {
+    if (source === "tmdb" && TMDB_KEY) {
+      const gid = type === "mese" ? null : (genreList.find((g) => g.name === genre) || {}).id;
+      const res = await tmdbDiscover(type, gid, provs);
+      if (!res) { onToast && onToast("TMDB hiba — nézd meg a kulcsot/netet."); return []; }
+      return res.map((o) => ({ ...o, providers: provs }));
+    }
+    let pool = (watchlist || []).filter((w) => (w.kind || "film") === type);
+    if (genre) pool = pool.filter((w) => (w.genre || "") === genre);
+    if (provs.length) pool = pool.filter((w) => (w.providers || []).some((p) => provs.includes(p)));
+    pool = pool.slice();
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    return pool.slice(0, 10).map((w) => ({ key: w.id, title: w.title, poster: w.img || null, overview: w.note || "", providers: w.providers || [], link: w.link || "" }));
+  };
+  const startRound = async () => {
+    if (!cloud) { onToast && onToast("A közös húzás/match csak online (Firebase) módban megy."); return; }
+    setLoading(true); setSpin(null);
+    const opts = await buildOptions();
+    if (!opts.length) { setLoading(false); onToast && onToast(source === "tmdb" ? "Nincs találat, próbálj más szűrőt." : "Nincs a listán ilyen — vegyél fel párat!"); return; }
+    try { const old = await leisureCol().get(); const b = fdb.batch(); old.docs.forEach((d) => b.delete(d.ref)); await b.commit(); } catch (e) {}
+    await leisureCol().add({ kind: "movie", source, type, genre: genre || null, providers: provs, options: opts, createdBy: getName(), createdAt: Date.now() }).catch(console.error);
+    setLoading(false);
+  };
+  const spinMese = async () => {
+    let pool = [];
+    if (source === "tmdb" && TMDB_KEY) { const r = await tmdbDiscover("mese", null, provs); pool = r || []; }
+    else pool = (watchlist || []).filter((w) => (w.kind || "") === "mese").map((w) => ({ title: w.title, poster: w.img || null }));
+    if (!pool.length) { onToast && onToast("Nincs mese — vegyél fel, vagy válts TMDB-re."); return; }
+    setSpin(pool[Math.floor(Math.random() * pool.length)]);
+  };
+
+  return (
+    <div>
+      <SectionHead title="Mit nézzünk?" hint="Húzd jobbra, ami tetszik — a közös = match" />
+      {TMDB_KEY && (
+        <div className="seg mb-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <button type="button" onClick={() => setSrc("tmdb")} style={source === "tmdb" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Ajánló (TMDB)</button>
+          <button type="button" onClick={() => setSrc("saved")} style={source === "saved" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Saját lista</button>
+        </div>
+      )}
+
+      <div className="card p-3 mb-4 space-y-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {["film", "sorozat", "mese"].map((k) => <Chip key={k} on={type === k} onClick={() => { setType(k); setGenre(""); }}>{k === "film" ? "🎬 Film" : k === "sorozat" ? "📺 Sorozat" : "🧸 Mese"}</Chip>)}
+        </div>
+        {type !== "mese" && (
+          <div><p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Műfaj</p>
+            <div className="flex flex-wrap gap-1.5">{genreList.map((gn) => <Chip key={gn.id} on={genre === gn.name} onClick={() => setGenre(genre === gn.name ? "" : gn.name)}>{gn.name}</Chip>)}</div></div>
+        )}
+        <div><p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Streaming</p>
+          <div className="flex flex-wrap gap-1.5">{PROVIDERS.map((p) => <Chip key={p} on={provs.includes(p)} onClick={() => toggleProv(p)}>{p}</Chip>)}</div></div>
+        <div className="flex gap-2 pt-0.5">
+          <button onClick={startRound} disabled={loading} className="btn-accent flex-1 py-2.5 text-[14px]">{loading ? "Töltés…" : "🎬 Új kör indítása"}</button>
+          {type === "mese" && <button onClick={spinMese} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold border" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>🎡 Pörgesd!</button>}
+        </div>
+        {spin && (
+          <div className="rounded-xl p-3 flex items-center gap-3 pop" style={{ background: "var(--surface-2)" }}>
+            {spin.poster ? <img src={spin.poster} alt="" className="w-12 h-16 rounded-lg object-cover flex-none" /> : <div className="w-12 h-16 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🧸</div>}
+            <div className="min-w-0"><p className="text-[11px] font-semibold" style={{ color: "var(--muted)" }}>Ezt nézzétek:</p><p className="font-display text-[18px] font-semibold truncate">{spin.title}</p></div>
+          </div>
+        )}
+      </div>
+
+      {matchOpt && (
+        <div className="card p-3 mb-4 pop" style={{ borderColor: "var(--green-line)", background: "var(--green-bg)" }}>
+          <p className="font-semibold" style={{ color: "var(--green)" }}>🎉 Match! Ezt nézzétek:</p>
+          <div className="flex items-center gap-3 mt-2">
+            {matchOpt.poster ? <img src={matchOpt.poster} alt="" className="w-12 h-16 rounded-lg object-cover flex-none" /> : <div className="w-12 h-16 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🎬</div>}
+            <div className="min-w-0">
+              <p className="font-display text-[18px] font-semibold truncate">{matchOpt.title}</p>
+              {(matchOpt.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>{(matchOpt.providers || []).join(", ")}</p> : null}
+              {matchOpt.link ? <a href={/^https?:\/\//i.test(matchOpt.link) ? matchOpt.link : "https://" + matchOpt.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold" style={{ color: "var(--accent)" }}>🔗 Megnyitás</a> : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {round ? (
+        remaining.length ? (
+          <div>
+            <SwipeDeck card={remaining[0]} index={options.length - remaining.length} total={options.length} onDecide={decide} />
+            <div className="flex justify-center gap-6 mt-3">
+              <button onClick={() => decide(false)} className="w-14 h-14 rounded-full grid place-items-center text-2xl border" style={{ borderColor: "var(--red-line)", background: "var(--red-bg)", color: "var(--red)" }} aria-label="Passz">👎</button>
+              <button onClick={() => decide(true)} className="w-14 h-14 rounded-full grid place-items-center text-2xl border" style={{ borderColor: "var(--green-line)", background: "var(--green-bg)", color: "var(--green)" }} aria-label="Tetszik">👍</button>
+            </div>
+          </div>
+        ) : (
+          <Empty>{matchOpt ? "Megvan a match! 🎉" : "Végignézted mind. Várd meg a lakótársad, vagy indíts új kört."}</Empty>
+        )
+      ) : (
+        <Empty>Nincs aktív kör. Válassz szűrőt, és indíts egyet!</Empty>
+      )}
+
+      {source === "saved" && (
+        <div className="mt-5">
+          <div className="flex items-center justify-between mb-2">
+            <button onClick={() => setShowList((s) => !s)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "var(--muted)" }}>
+              <Icon name="chevron" className="w-4 h-4" style={{ transform: showList ? "rotate(180deg)" : "none", transition: "transform .15s" }} /> Saját lista ({(watchlist || []).length})
+            </button>
+            <button onClick={() => { setWOpen((o) => !o); setWEditId(null); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2 text-[13px]"><Icon name="plus" className="w-[16px] h-[16px]" /> Cím</button>
+          </div>
+          {wOpen && <WatchForm onSave={(d) => { onAddWatch(d); setWOpen(false); }} onCancel={() => setWOpen(false)} />}
+          {showList && (
+            <ul className="space-y-1.5">
+              {(watchlist || []).map((w) => wEditId === w.id ? (
+                <li key={w.id}><WatchForm initial={w} onSave={(d) => { onEditWatch(w.id, d); setWEditId(null); }} onCancel={() => setWEditId(null)} /></li>
+              ) : (
+                <li key={w.id} className="card p-2 flex items-center gap-2.5">
+                  {w.img ? <Thumb src={w.img} /> : <div className="w-8 h-8 rounded-lg grid place-items-center flex-none text-base" style={{ background: "var(--surface-2)" }}>{w.kind === "sorozat" ? "📺" : w.kind === "mese" ? "🧸" : "🎬"}</div>}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-[15px] leading-tight truncate">{w.title}</p>
+                    <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{[w.genre, (w.providers || []).join("/")].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  <button onClick={() => { setWEditId(w.id); setWOpen(false); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Módosítás"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
+                  <button onClick={() => onRemoveWatch(w.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeisureView(props) {
+  const [sub, setSub] = useState(() => { try { return localStorage.getItem("lakotarsak.leisureSub") || "movies"; } catch (e) { return "movies"; } });
+  const setSubP = (s) => { setSub(s); try { localStorage.setItem("lakotarsak.leisureSub", s); } catch (e) {} };
+  return (
+    <div className="pop">
+      <div className="seg mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <button type="button" onClick={() => setSubP("movies")} style={sub === "movies" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>🎬 Film/Sorozat</button>
+        <button type="button" onClick={() => setSubP("games")} style={sub === "games" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>🎲 Társas</button>
+      </div>
+      {sub === "games"
+        ? <BoardGamesView items={props.boardgames} onAdd={props.onAddGame} onEdit={props.onEditGame} onRemove={props.onRemoveGame} />
+        : <MoviesView watchlist={props.watchlist} onAddWatch={props.onAddWatch} onEditWatch={props.onEditWatch} onRemoveWatch={props.onRemoveWatch} onToast={props.onToast} />}
+    </div>
+  );
+}
+
+/* ================= APP ================= */
+const TABS = [
+  { key: "shopping", label: "Bevásárlás", icon: "cart" },
+  { key: "inventory", label: "Készlet", icon: "box" },
+  { key: "debts", label: "Tartozás", icon: "wallet" },
+  { key: "leisure", label: "Szabadidő", icon: "dice" },
+];
+
+function IconBtn({ onClick, name, label, active, badge }) {
+  return (
+    <button onClick={onClick} className="relative w-9 h-9 grid place-items-center rounded-xl border flex-none"
+      style={{ borderColor: "var(--line)", background: "var(--surface)", color: active ? "var(--accent)" : "var(--muted)" }}
+      aria-label={label} title={label}>
+      <Icon name={name} className="w-[18px] h-[18px]" />
+      {badge > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full text-[9px] font-bold grid place-items-center tnum"
+          style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>{badge}</span>
+      )}
+    </button>
+  );
+}
+
+function App() {
+  const { data, ops } = useBackend();
+  const [tab, setTab] = useState("shopping");
+  const [toast, setToast] = useState(null);
+  const [notif, setNotif] = useState(() => ("Notification" in window) ? Notification.permission : "unsupported");
+  const [myName, setMyName] = useState(getName());
+  const [nameOpen, setNameOpen] = useState(false);
+  const [catManagerOpen, setCatManagerOpen] = useState(false);
+  const [members, setMembers] = useState([]);
+  const toastTimer = useRef(null);
+
+  useEffect(() => { if (cloud && !getName()) setNameOpen(true); }, []);
+
+  const upsertMember = (nm) => {
+    if (!cloud || !nm || !nm.trim()) return; // csak névvel rendelkező tag kerül a listába
+    membersCol().doc(DEVICE).set({ name: nm.trim(), lastSeen: Date.now(), device: DEVICE }, { merge: true }).catch(console.error);
+  };
+  useEffect(() => {
+    if (!cloud) return;
+    upsertMember(getName());
+    const unsub = membersCol().onSnapshot(
+      (snap) => setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("members", err)
+    );
+    return unsub;
+  }, []);
+
+  const showToast = (msg, action) => {
+    setToast({ msg, action });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), action ? 5000 : 2000);
+  };
+  const saveName = (n) => {
+    try { localStorage.setItem("lakotarsak.name", n); } catch (e) {}
+    setMyName(n); setNameOpen(false);
+    if (cloud) {
+      if (n) { upsertMember(n); showToast("Név mentve ✓"); }
+      else { membersCol().doc(DEVICE).delete().catch(console.error); }
+    }
+  };
+  const renameMember = (id, n) => {
+    if (!cloud) return;
+    membersCol().doc(id).set({ name: n || "" }, { merge: true }).catch(console.error);
+    if (id === DEVICE) { try { localStorage.setItem("lakotarsak.name", n || ""); } catch (e) {} setMyName(n || ""); }
+    showToast("Név frissítve ✓");
+  };
+  const removeMember = (id) => {
+    if (!cloud) return;
+    membersCol().doc(id).delete().catch(console.error);
+    showToast("Lakótárs eltávolítva");
+  };
+
+  const enableNotif = async () => {
+    if (!("Notification" in window)) { showToast("Ez a böngésző nem támogatja az értesítést"); return; }
+    if (Notification.permission === "granted") { showToast("Az értesítés már be van kapcsolva ✓"); return; }
+    if (Notification.permission === "denied") { showToast("Az értesítés le van tiltva a böngészőben"); return; }
+    const p = await Notification.requestPermission();
+    setNotif(p);
+    showToast(p === "granted" ? "Értesítés bekapcsolva ✓" : "Értesítés nem engedélyezve");
+  };
+  const share = async () => {
+    const url = location.origin + location.pathname;
+    try {
+      if (navigator.share) { await navigator.share({ title: "Lakótársak", url }); return; }
+      await navigator.clipboard.writeText(url);
+      showToast("Közös link másolva ✓");
+    } catch (e) { showToast("Link: " + url); }
+  };
+
+  const toggleShopping = (it) => {
+    const nowDone = !it.done;
+    ops.update("shopping", it.id, { done: nowDone });
+    if (nowDone) {
+      const key = (it.name || "").trim().toLowerCase();
+      const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
+      if (inv && inv.status !== "green") {
+        ops.update("inventory", inv.id, { status: "green" });
+        showToast("Készleten zöldre állítva: " + inv.name);
+      }
+    }
+  };
+  const removeWithUndo = (name, id, label) => {
+    const item = (data[name] || []).find((i) => i.id === id);
+    ops.remove(name, id);
+    if (item) showToast(label || "Törölve", { label: "Visszavon", fn: () => ops.restore(name, [item]) });
+  };
+  const clearShopping = () => {
+    const items = data.shopping;
+    if (!items.length) return;
+    ops.clear("shopping");
+    showToast("Lista törölve", { label: "Visszavon", fn: () => ops.restore("shopping", items) });
+  };
+  const clearShoppingDone = () => {
+    const items = data.shopping.filter((i) => i.done);
+    if (!items.length) return;
+    items.forEach((i) => ops.remove("shopping", i.id));
+    showToast("Kész tételek törölve", { label: "Visszavon", fn: () => ops.restore("shopping", items) });
+  };
+  const sendToShoppingFromStock = (item) => {
+    if (!item || (item.status !== "amber" && item.status !== "red")) return;
+    const key = (item.name || "").trim().toLowerCase();
+    if (!key) return;
+    const exists = data.shopping.some((s) => !s.done && (s.name || "").trim().toLowerCase() === key);
+    if (exists) return;
+    ops.add("shopping", { name: item.name, qty: item.qty || "", catId: item.catId || "", owner: item.owner || "", done: false, from: "raktar" });
+    showToast("Bevásárlólistára téve (raktárból): " + item.name);
+  };
+  const sendToInventory = (item) => {
+    const key = (item.name || "").trim().toLowerCase();
+    if (!key) return;
+    const exists = data.inventory.some((x) => (x.name || "").trim().toLowerCase() === key);
+    if (exists) { showToast("Már a készletben van: " + item.name); return; }
+    ops.add("inventory", { name: item.name, qty: item.qty || "", catId: item.catId || "", owner: item.owner || "", status: "green" });
+    showToast("Készletbe téve: " + item.name);
+  };
+  const doneToInventory = () => {
+    const doneItems = data.shopping.filter((i) => i.done);
+    if (!doneItems.length) return;
+    doneItems.forEach((it) => {
+      const key = (it.name || "").trim().toLowerCase();
+      if (key && !data.inventory.some((x) => (x.name || "").trim().toLowerCase() === key)) {
+        ops.add("inventory", { name: it.name, qty: it.qty || "", catId: it.catId || "", owner: it.owner || "", status: "green" });
+      }
+    });
+    doneItems.forEach((it) => ops.remove("shopping", it.id));
+    showToast("Kész tételek a készletbe ✓", { label: "Visszavon", fn: () => ops.restore("shopping", doneItems) });
+  };
+  const clearInventory = () => {
+    const items = data.inventory;
+    if (!items.length) return;
+    ops.clear("inventory");
+    showToast("Készlet ürítve", { label: "Visszavon", fn: () => ops.restore("inventory", items) });
+  };
+
+  const namedMembers = members.filter((m) => m.name && m.name.trim());
+  const memberNames = [...new Set(namedMembers.map((m) => m.name.trim()))].sort((a, b) => a.localeCompare(b, "hu"));
+  const cats = data.categories || [];
+  const badges = {
+    shopping: data.shopping.filter((i) => !i.done).length,
+    inventory: data.inventory.filter((i) => i.status === "red").length,
+    debts: data.debts.length,
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--ground)" }}>
+      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--ground) 82%, transparent)", backdropFilter: "blur(8px)" }}>
+        <div className="mx-auto w-full max-w-[560px] px-4 py-3 flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl grid place-items-center flex-none font-display font-bold" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>L</div>
+          <div className="leading-tight flex-1 min-w-0">
+            <div className="font-display text-[19px] font-semibold tracking-[-.01em] truncate">Lakótársak</div>
+            <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
+              <span className="inline-block w-2 h-2 rounded-full flex-none" style={{ background: cloud ? "var(--green)" : "var(--muted)" }} />
+              <span className="truncate">{cloud ? (myName ? myName + " · szinkronban" : "Közös · szinkronban") : "Csak ezen az eszközön"}</span>
+            </div>
+          </div>
+          {cloud && (
+            <div className="flex items-center gap-1.5 flex-none">
+              <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} badge={namedMembers.length} />
+              <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />
+              <IconBtn onClick={share} name="share" label="Megosztás" />
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="flex-1 mx-auto w-full max-w-[560px] px-4 pt-5 pb-28">
+        {tab === "shopping" && (
+          <ShoppingView items={data.shopping} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
+            onAdd={(it) => ops.add("shopping", it)}
+            onEdit={(id, patch) => ops.update("shopping", id, patch)}
+            onToInventory={sendToInventory}
+            onToggle={toggleShopping}
+            onRemove={(id) => removeWithUndo("shopping", id)}
+            onClear={clearShopping}
+            onClearDone={clearShoppingDone}
+            onDoneToInventory={doneToInventory}
+            onTransfer={(d) => ops.add("debts", d)}
+            onToast={showToast} />
+        )}
+        {tab === "inventory" && (
+          <InventoryView items={data.inventory} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
+            onAdd={(d) => { ops.add("inventory", d); sendToShoppingFromStock(d); }}
+            onSave={(id, d) => { ops.update("inventory", id, d); sendToShoppingFromStock(d); }}
+            onRemove={(id) => removeWithUndo("inventory", id)}
+            onClear={clearInventory} />
+        )}
+        {tab === "debts" && (
+          <DebtsView items={data.debts}
+            onAdd={(d) => ops.add("debts", d)}
+            onSettle={(id) => removeWithUndo("debts", id, "Rendezve")}
+            onRemove={(id) => removeWithUndo("debts", id)} />
+        )}
+        {tab === "leisure" && (
+          <LeisureView
+            boardgames={data.boardgames || []}
+            watchlist={data.watchlist || []}
+            onToast={showToast}
+            onAddGame={(d) => ops.add("boardgames", d)}
+            onEditGame={(id, d) => ops.update("boardgames", id, d)}
+            onRemoveGame={(id) => removeWithUndo("boardgames", id)}
+            onAddWatch={(d) => ops.add("watchlist", d)}
+            onEditWatch={(id, d) => ops.update("watchlist", id, d)}
+            onRemoveWatch={(id) => removeWithUndo("watchlist", id)} />
+        )}
+      </main>
+
+      {toast && (
+        <div className="toast">
+          <span>{toast.msg}</span>
+          {toast.action && <button className="undo" onClick={() => { toast.action.fn(); setToast(null); }}>{toast.action.label}</button>}
+        </div>
+      )}
+
+      {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onClose={() => setNameOpen(false)} />}
+      {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => ops.catRemove(id)} onClose={() => setCatManagerOpen(false)} />}
+
+      <nav className="fixed bottom-0 inset-x-0 z-20 border-t" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--ground) 88%, transparent)", backdropFilter: "blur(8px)" }}>
+        <div className="mx-auto w-full max-w-[560px] grid grid-cols-4" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {TABS.map((t) => (
+            <button key={t.key} data-active={tab === t.key} onClick={() => setTab(t.key)} className="tab-btn relative flex flex-col items-center gap-1 py-2.5">
+              <span className="relative">
+                <Icon name={t.icon} className="w-6 h-6" />
+                {badges[t.key] > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-bold grid place-items-center tnum" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>{badges[t.key]}</span>
+                )}
+              </span>
+              <span className="text-[11px] font-semibold">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
