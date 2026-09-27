@@ -1978,7 +1978,6 @@ function App() {
   const [members, setMembers] = useState([]);
   const toastTimer = useRef(null);
 
-  useEffect(() => { if (cloud && !getName()) setNameOpen(true); }, []);
 
   const upsertMember = (nm) => {
     if (!cloud || !nm || !nm.trim()) return; // csak névvel rendelkező tag kerül a listába
@@ -1988,7 +1987,16 @@ function App() {
     if (!cloud) return;
     upsertMember(getName());
     const unsub = membersCol().onSnapshot(
-      (snap) => setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setMembers(list);
+        // ha a telefon elfelejtette a nevet, de a felhőben még megvan ehhez az eszközhöz → visszavesszük
+        const mine = list.find((m) => m.id === DEVICE);
+        if (!getName() && mine && mine.name && mine.name.trim()) {
+          try { localStorage.setItem("lakotarsak.name", mine.name.trim()); } catch (e) {}
+          setMyName(mine.name.trim());
+        }
+      },
       (err) => console.error("members", err)
     );
     return unsub;
@@ -2145,7 +2153,11 @@ function App() {
             <div className="font-display text-[19px] font-semibold tracking-[-.01em] truncate">Lakótársak</div>
             <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
               <span className="inline-block w-2 h-2 rounded-full flex-none" style={{ background: cloud ? "var(--green)" : "var(--muted)" }} />
-              <span className="truncate">{cloud ? (myName ? myName + " · szinkronban" : "Közös · szinkronban") : "Csak ezen az eszközön"}</span>
+              {cloud && !myName ? (
+                <button type="button" onClick={() => setNameOpen(true)} className="truncate font-semibold" style={{ color: "var(--accent)" }}>Add meg a neved →</button>
+              ) : (
+                <span className="truncate">{cloud ? myName + " · szinkronban" : "Csak ezen az eszközön"}</span>
+              )}
             </div>
           </div>
           {cloud && (
