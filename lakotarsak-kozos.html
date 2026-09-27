@@ -263,8 +263,10 @@ const SEED = {
     { id: uid(), payer: "Bence", amount: 1500, note: "pizza péntek este", createdAt: Date.now() - 1 },
   ],
 };
+// a közös kollekciók (feliratkozás + biztonsági mentés ugyanebből a listából)
+const DATA_COLS = ["shopping", "inventory", "debts", "boardgames", "watchlist", "watched"];
 function loadInitial() {
-  const base = cloud ? { shopping: [], inventory: [], debts: [], boardgames: [], watchlist: [] } : { ...SEED, boardgames: [], watchlist: [] };
+  const base = cloud ? { shopping: [], inventory: [], debts: [], boardgames: [], watchlist: [], watched: [] } : { ...SEED, boardgames: [], watchlist: [], watched: [] };
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return { ...base, categories: DEFAULT_CATEGORIES };
@@ -275,6 +277,7 @@ function loadInitial() {
       debts: Array.isArray(p.debts) ? p.debts : [],
       boardgames: Array.isArray(p.boardgames) ? p.boardgames : [],
       watchlist: Array.isArray(p.watchlist) ? p.watchlist : [],
+      watched: Array.isArray(p.watched) ? p.watched : [],
       categories: Array.isArray(p.categories) && p.categories.length ? p.categories : DEFAULT_CATEGORIES,
     };
   } catch (e) { return { ...base, categories: DEFAULT_CATEGORIES }; }
@@ -288,7 +291,7 @@ function useBackend() {
 
   useEffect(() => {
     if (!cloud) return;
-    const names = ["shopping", "inventory", "debts", "boardgames", "watchlist"];
+    const names = DATA_COLS;
     const inited = {};
     const unsubs = names.map((name) =>
       roomCol(name).orderBy("createdAt", "desc").onSnapshot(
@@ -385,6 +388,15 @@ function useBackend() {
     catRemove(id) {
       if (cloud) catsCol().doc(id).delete().catch(console.error);
       else setData((p) => ({ ...p, categories: (p.categories || []).filter((c) => c.id !== id) }));
+    },
+    catRestore(list) {
+      if (!list || !list.length) return;
+      if (cloud) list.forEach((c) => { const { id, ...rest } = c; catsCol().doc(id).set(rest).catch(console.error); });
+      else setData((p) => {
+        const map = new Map((p.categories || []).map((c) => [c.id, c]));
+        list.forEach((c) => map.set(c.id, c));
+        return { ...p, categories: [...map.values()].sort((a, b) => (a.sort || 0) - (b.sort || 0)) };
+      });
     },
   };
   return { data, ops };
@@ -541,7 +553,16 @@ const TV_GENRES = [
   { id: 9648, name: "Rejtély" }, { id: 10765, name: "Sci-fi-fantasy" }, { id: 16, name: "Animáció" }, { id: 10751, name: "Családi" }, { id: 99, name: "Dokumentum" },
 ];
 function tmdbImg(p) { return p ? "https://image.tmdb.org/t/p/w342" + p : null; }
-async function tmdbDiscover(type, genreId, providerNames) {
+// valós „hol nézhető" (HU előfizetéses) egy TMDB-címhez; a saját neveinket használja, ha ismerjük a szolgáltatót
+async function tmdbProviders(type, tmdbId) {
+  const media = type === "sorozat" ? "tv" : "movie";
+  const r = await fetch("https://api.themoviedb.org/3/" + media + "/" + tmdbId + "/watch/providers?api_key=" + TMDB_KEY);
+  if (!r.ok) throw new Error("TMDB " + r.status);
+  const hu = ((await r.json()).results || {}).HU || {};
+  const byId = {}; Object.keys(PROVIDER_TMDB).forEach((n) => { byId[PROVIDER_TMDB[n]] = n; });
+  return { names: [...new Set((hu.flatrate || []).map((p) => byId[p.provider_id] || p.provider_name))], link: hu.link || "" };
+}
+async function tmdbDiscover(type, genreId, providerNames, excludeKeys) {
   const media = type === "sorozat" ? "tv" : "movie";
   const params = new URLSearchParams({ api_key: TMDB_KEY, language: "hu-HU", watch_region: "HU", sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": "50", page: "1" });
   const genres = type === "mese" ? "16,10751" : (genreId ? String(genreId) : "");
@@ -555,7 +576,7 @@ async function tmdbDiscover(type, genreId, providerNames) {
     const pages = Math.min(j.total_pages || 1, 5);
     const page = 1 + Math.floor(Math.random() * pages);
     if (page > 1) { params.set("page", String(page)); j = await get(); }
-    const arr = (j.results || []).filter((x) => x.poster_path).slice(0, 10).map((x) => ({
+    const arr = (j.results || []).filter((x) => x.poster_path && !(excludeKeys && excludeKeys.has("tmdb-" + x.id))).slice(0, 10).map((x) => ({
       key: "tmdb-" + x.id, tmdbId: x.id, title: x.title || x.name || "?", poster: tmdbImg(x.poster_path), overview: x.overview || "",
     }));
     return arr;
@@ -710,7 +731,7 @@ function initialsColor(str) {
   let h = 0; for (let i = 0; i < (str || "?").length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
   return `hsl(${h} 45% 55%)`;
 }
-function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, onClose }) {
+function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, onExport, onImport, onClose }) {
   const [val, setVal] = useState(initial || "");
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -763,6 +784,18 @@ function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, o
               })}
             </ul>
             <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>Aki még aktívan használja az appot, a következő megnyitáskor újra megjelenhet.</p>
+          </div>
+        )}
+        {onExport && (
+          <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--line)" }}>
+            <p className="text-[12px] font-semibold mb-2" style={{ color: "var(--muted)" }}>Biztonsági mentés (minden lista egy fájlban):</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={onExport} className="flex-1 py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--accent)" }}>⬇ Mentés letöltése</button>
+              <label className="flex-1 py-2 rounded-xl text-[13px] font-semibold text-center cursor-pointer" style={{ background: "var(--surface-2)", color: "var(--ink)" }}>
+                ⬆ Visszatöltés
+                <input type="file" accept="application/json,.json" className="hidden" onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; onImport(f); }} />
+              </label>
+            </div>
           </div>
         )}
       </div>
@@ -888,7 +921,7 @@ function ShopEditForm({ item, cats, memberNames, onManageCats, onSave, onCancel,
   );
 }
 
-function ShoppingView({ items, cats, memberNames, onManageCats, onAdd, onEdit, onToInventory, onToggle, onRemove, onClear, onClearDone, onDoneToInventory, onTransfer, onToast }) {
+function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onAdd, onEdit, onToInventory, onToggle, onRemove, onClear, onClearDone, onDoneToInventory, onTransfer, onToast }) {
   const [q, setQ] = useState("");
   const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem("lakotarsak.shopHidden") || "{}") || {}; } catch (e) { return {}; } });
   const setHiddenPersist = (h) => { setHidden(h); try { localStorage.setItem("lakotarsak.shopHidden", JSON.stringify(h)); } catch (e) {} };
@@ -917,6 +950,28 @@ function ShoppingView({ items, cats, memberNames, onManageCats, onAdd, onEdit, o
     busy.current = true; setTimeout(() => { busy.current = false; }, 400);
     onAdd({ name: name.trim(), qty: qty.trim(), catId, owner, img, store: store.trim(), link: link.trim(), done: false });
     reset();
+  };
+  // gyors-ajánló: korábbi/készletben lévő tételek a beírt szövegre (a már listán lévőket kihagyja)
+  const suggestions = (() => {
+    const t = name.trim().toLowerCase();
+    if (!t) return [];
+    const onList = new Set(items.filter((i) => !i.done).map((i) => (i.name || "").trim().toLowerCase()));
+    const seen = new Set(); const out = [];
+    [...items, ...(suggestPool || [])].forEach((s) => {
+      const k = (s.name || "").trim().toLowerCase();
+      if (!k || k === t || seen.has(k) || onList.has(k) || !k.includes(t)) return;
+      seen.add(k); out.push(s);
+    });
+    out.sort((a, b) => (a.name.toLowerCase().startsWith(t) ? 0 : 1) - (b.name.toLowerCase().startsWith(t) ? 0 : 1));
+    return out.slice(0, 5);
+  })();
+  const pickSuggestion = (s) => {
+    setName(s.name.trim());
+    const c = findCat(cats, s);
+    if (c) setCatId(c.id);
+    if (s.owner) setOwner(s.owner);
+    if (s.store) setStore(s.store);
+    if (s.link) setLink(s.link);
   };
   const doTransfer = (item, debt) => {
     onTransfer(debt);
@@ -1025,6 +1080,19 @@ function ShoppingView({ items, cats, memberNames, onManageCats, onAdd, onEdit, o
         <form onSubmit={submit} className="card p-3.5 mb-4 pop">
           <div className="space-y-2.5">
             <input ref={nameRef} className="field" placeholder="Mit? (pl. Kenyér)" value={name} onChange={(e) => setName(e.target.value)} />
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {suggestions.map((s) => {
+                  const sc = findCat(cats, s);
+                  return (
+                    <button key={s.name} type="button" onClick={() => pickSuggestion(s)} className="px-2.5 py-1 rounded-full text-[12px] font-semibold"
+                      style={sc ? { background: tint(sc.color, 0.16), color: "var(--ink)" } : { background: "var(--surface-2)", color: "var(--ink)" }}>
+                      {sc ? sc.icon + " " : ""}{s.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <input className="field" placeholder="Mennyit? (pl. 1 db) — opcionális" value={qty} onChange={(e) => setQty(e.target.value)} />
             {more && (
               <React.Fragment>
@@ -1500,7 +1568,9 @@ function BoardGamesView({ items, onAdd, onEdit, onRemove }) {
     return true;
   };
   const roll = () => {
-    const pool = items.filter(matches);
+    let pool = items.filter(matches);
+    // ne ugyanazt dobja kétszer egymás után (ha van más választás)
+    if (pool.length > 1 && drawn && drawn.id) pool = pool.filter((g) => g.id !== drawn.id);
     setDrawn(pool.length ? pool[Math.floor(Math.random() * pool.length)] : { empty: true });
   };
   return (
@@ -1630,7 +1700,10 @@ function SwipeDeck({ card, index, total, onDecide }) {
   );
 }
 
-function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast }) {
+function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast, watched, onMarkWatched, onUnwatch }) {
+  const watchedKeys = new Set((watched || []).map((w) => w.key));
+  const [showWatched, setShowWatched] = useState(false);
+  const [provInfo, setProvInfo] = useState({}); // key -> { names, link } | "err"
   const [source, setSource] = useState(() => { try { return (TMDB_KEY && localStorage.getItem("lakotarsak.movSrc")) || (TMDB_KEY ? "tmdb" : "saved"); } catch (e) { return "saved"; } });
   const setSrc = (s) => { setSource(s); try { localStorage.setItem("lakotarsak.movSrc", s); } catch (e) {} };
   const [type, setType] = useState("film");
@@ -1667,7 +1740,18 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
   const remaining = options.filter((o) => !decided.has(o.key));
   const likeCount = {};
   swipes.forEach((s) => (s.likes || []).forEach((k) => { likeCount[k] = (likeCount[k] || 0) + 1; }));
-  const matchOpts = options.filter((o) => likeCount[o.key] >= 2);
+  const matchOpts = options.filter((o) => likeCount[o.key] >= 2 && !watchedKeys.has(o.key));
+
+  // a TMDB-s közös kedvencekhez lekérjük, valójában hol nézhetők
+  const matchTmdbIds = matchOpts.filter((o) => o.tmdbId).map((o) => o.key).join(",");
+  useEffect(() => {
+    if (!TMDB_KEY || !round) return;
+    matchOpts.filter((o) => o.tmdbId && !provInfo[o.key]).forEach((o) => {
+      tmdbProviders(round.type, o.tmdbId)
+        .then((res) => setProvInfo((p) => ({ ...p, [o.key]: res })))
+        .catch(() => setProvInfo((p) => ({ ...p, [o.key]: "err" })));
+    });
+  }, [matchTmdbIds, round && round.id]);
 
   const decide = (liked) => {
     const card = remaining[0];
@@ -1681,11 +1765,11 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
   const buildOptions = async () => {
     if (source === "tmdb" && TMDB_KEY) {
       const gid = type === "mese" ? null : (genreList.find((g) => g.name === genre) || {}).id;
-      const res = await tmdbDiscover(type, gid, provs);
+      const res = await tmdbDiscover(type, gid, provs, watchedKeys);
       if (!res) { onToast && onToast("TMDB hiba — nézd meg a kulcsot/netet."); return null; }
       return res.map((o) => ({ ...o, providers: provs }));
     }
-    let pool = (watchlist || []).filter((w) => (w.kind || "film") === type);
+    let pool = (watchlist || []).filter((w) => (w.kind || "film") === type && !watchedKeys.has(w.id));
     if (genre) pool = pool.filter((w) => (w.genre || "") === genre);
     if (provs.length) pool = pool.filter((w) => (w.providers || []).some((p) => provs.includes(p)));
     pool = pool.slice();
@@ -1753,11 +1837,18 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
             {matchOpts.map((m) => (
               <li key={m.key} className="flex items-center gap-3">
                 {m.poster ? <img src={m.poster} alt="" className="w-11 h-16 rounded-lg object-cover flex-none" /> : <div className="w-11 h-16 rounded-lg grid place-items-center flex-none text-2xl" style={{ background: "var(--surface)" }}>🎬</div>}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="font-display text-[17px] font-semibold leading-tight truncate">{m.title}</p>
-                  {(m.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>{(m.providers || []).join(", ")}</p> : null}
+                  {(() => {
+                    if (!m.tmdbId) return (m.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>📺 {(m.providers || []).join(", ")}</p> : null;
+                    const pi = provInfo[m.key];
+                    if (!pi) return <p className="text-[12px]" style={{ color: "var(--muted)" }}>📺 …</p>;
+                    if (pi === "err") return (m.providers || []).length ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>📺 {(m.providers || []).join(", ")}</p> : null;
+                    return <p className="text-[12px]" style={{ color: "var(--muted)" }}>📺 {pi.names.length ? pi.names.join(", ") : "Most nincs magyar streamingen"}</p>;
+                  })()}
                   {m.link ? <a href={/^https?:\/\//i.test(m.link) ? m.link : "https://" + m.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold" style={{ color: "var(--accent)" }}>🔗 Megnyitás</a> : null}
                 </div>
+                <button onClick={() => onMarkWatched(m)} className="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold flex-none" style={{ background: "var(--surface)", color: "var(--green)" }} title="Többé nem ajánlja">✓ Láttuk</button>
               </li>
             ))}
           </ul>
@@ -1784,6 +1875,25 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
         <button onClick={endRound} className="mt-3 w-full py-2.5 rounded-xl text-[13px] font-semibold inline-flex items-center justify-center gap-2 border" style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
           <Icon name="trash" className="w-[16px] h-[16px]" /> Kör lezárása
         </button>
+      )}
+
+      {(watched || []).length > 0 && (
+        <div className="mt-5">
+          <button onClick={() => setShowWatched((s) => !s)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold mb-2" style={{ color: "var(--muted)" }}>
+            <Icon name="chevron" className="w-4 h-4" style={{ transform: showWatched ? "rotate(180deg)" : "none", transition: "transform .15s" }} /> Már láttuk ({watched.length})
+          </button>
+          {showWatched && (
+            <ul className="space-y-1.5">
+              {watched.map((w) => (
+                <li key={w.id} className="card p-2 flex items-center gap-2.5">
+                  {w.poster ? <img src={w.poster} alt="" className="w-8 h-11 rounded-md object-cover flex-none" /> : <div className="w-8 h-8 rounded-lg grid place-items-center flex-none text-base" style={{ background: "var(--surface-2)" }}>🎬</div>}
+                  <p className="flex-1 min-w-0 font-semibold text-[14px] truncate">{w.title}</p>
+                  <button onClick={() => onUnwatch(w.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Visszavétel az ajánlásba" title="Újra ajánlhatja"><Icon name="x" className="w-[18px] h-[18px]" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {source === "saved" && (
@@ -1829,7 +1939,8 @@ function LeisureView(props) {
       </div>
       {sub === "games"
         ? <BoardGamesView items={props.boardgames} onAdd={props.onAddGame} onEdit={props.onEditGame} onRemove={props.onRemoveGame} />
-        : <MoviesView watchlist={props.watchlist} onAddWatch={props.onAddWatch} onEditWatch={props.onEditWatch} onRemoveWatch={props.onRemoveWatch} onToast={props.onToast} />}
+        : <MoviesView watchlist={props.watchlist} onAddWatch={props.onAddWatch} onEditWatch={props.onEditWatch} onRemoveWatch={props.onRemoveWatch} onToast={props.onToast}
+            watched={props.watched} onMarkWatched={props.onMarkWatched} onUnwatch={props.onUnwatch} />}
     </div>
   );
 }
@@ -1923,6 +2034,32 @@ function App() {
       await navigator.clipboard.writeText(url);
       showToast("Közös link másolva ✓");
     } catch (e) { showToast("Link: " + url); }
+  };
+
+  // biztonsági mentés: minden lista egy JSON-fájlba; visszatöltéskor semmit nem töröl, csak visszaírja a mentett tételeket
+  const exportBackup = () => {
+    const d = { app: "lakotarsak", version: 1, savedAt: Date.now(), categories: data.categories || [] };
+    DATA_COLS.forEach((c) => { d[c] = data[c] || []; });
+    const blob = new Blob([JSON.stringify(d)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "lakotarsak-mentes-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    showToast("Mentés letöltve ✓");
+  };
+  const importBackup = async (file) => {
+    if (!file) return;
+    try {
+      const d = JSON.parse(await file.text());
+      if (!d || d.app !== "lakotarsak") { showToast("Ez nem Lakótársak mentés"); return; }
+      const count = DATA_COLS.reduce((n, c) => n + (Array.isArray(d[c]) ? d[c].length : 0), 0);
+      const when = d.savedAt ? new Date(d.savedAt).toLocaleString("hu-HU") : "?";
+      if (!confirm(`Visszatöltöd a mentést (${when}, ${count} tétel)? A mentésben lévő tételek visszakerülnek, a mostaniak megmaradnak.`)) return;
+      DATA_COLS.forEach((c) => { if (Array.isArray(d[c])) ops.restore(c, d[c].filter((x) => x && x.id)); });
+      if (Array.isArray(d.categories)) ops.catRestore(d.categories.filter((x) => x && x.id));
+      showToast("Mentés visszatöltve ✓");
+    } catch (e) { console.error(e); showToast("Nem sikerült beolvasni a fájlt"); }
   };
 
   const toggleShopping = (it) => {
@@ -2023,7 +2160,7 @@ function App() {
 
       <main className="flex-1 mx-auto w-full max-w-[560px] px-4 pt-5 pb-28">
         {tab === "shopping" && (
-          <ShoppingView items={data.shopping} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
+          <ShoppingView items={data.shopping} suggestPool={data.inventory} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
             onAdd={(it) => ops.add("shopping", it)}
             onEdit={(id, patch) => ops.update("shopping", id, patch)}
             onToInventory={sendToInventory}
@@ -2058,7 +2195,10 @@ function App() {
             onRemoveGame={(id) => removeWithUndo("boardgames", id)}
             onAddWatch={(d) => ops.add("watchlist", d)}
             onEditWatch={(id, d) => ops.update("watchlist", id, d)}
-            onRemoveWatch={(id) => removeWithUndo("watchlist", id)} />
+            onRemoveWatch={(id) => removeWithUndo("watchlist", id)}
+            watched={data.watched || []}
+            onMarkWatched={(o) => { ops.add("watched", { key: o.key, title: o.title, poster: o.poster || null }); showToast("„" + o.title + "” — megnézve ✓"); }}
+            onUnwatch={(id) => ops.remove("watched", id)} />
         )}
       </main>
 
@@ -2069,7 +2209,7 @@ function App() {
         </div>
       )}
 
-      {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onClose={() => setNameOpen(false)} />}
+      {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onExport={exportBackup} onImport={importBackup} onClose={() => setNameOpen(false)} />}
       {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => ops.catRemove(id)} onClose={() => setCatManagerOpen(false)} />}
 
       <nav className="fixed bottom-0 inset-x-0 z-20 border-t" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--ground) 88%, transparent)", backdropFilter: "blur(8px)" }}>
