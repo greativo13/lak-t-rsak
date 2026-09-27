@@ -168,6 +168,28 @@ const DEVICE = (() => {
 })();
 const getName = () => { try { return localStorage.getItem("lakotarsak.name") || ""; } catch (e) { return ""; } };
 
+/* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
+   (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
+const APP_VERSION = "2026-09-27.2";
+function checkForUpdate() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
+    .then((r) => (r.ok ? r.text() : ""))
+    .then((t) => {
+      const m = t.match(/const APP_VERSION = "([^"]+)"/);
+      if (!m || m[1] === APP_VERSION) return;
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.value) return; // ne vesszen el a félig beírt szöveg
+      let tried = ""; try { tried = sessionStorage.getItem("lakotarsak.updTried") || ""; } catch (e) {}
+      if (tried === m[1]) return; // egy verzióra csak egyszer próbálja (nincs végtelen újratöltés)
+      try { sessionStorage.setItem("lakotarsak.updTried", m[1]); } catch (e) {}
+      location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+    })
+    .catch(() => {});
+}
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+
 /* ============================================================
    FIREBASE BEÁLLÍTÁS — ide illeszd be a saját projekted kulcsait.
    Amíg üres, az app CSAK ezen az eszközön tárol (localStorage).
@@ -744,7 +766,7 @@ function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, o
     <div className="overlay" onClick={onClose}>
       <div className="card p-4 w-full" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
         <h3 className="font-display text-[20px] font-semibold mb-1">Mi a neved?</h3>
-        <p className="text-[13px] mb-3" style={{ color: "var(--muted)" }}>Ez jelenik meg a lakótársaknál: ki vett fel egy tételt. Bármikor módosíthatod.</p>
+        <p className="text-[13px] mb-3" style={{ color: "var(--muted)" }}>Ez jelenik meg a lakótársaknál: ki vett fel egy tételt. Bármikor módosíthatod.{!initial && cloud && others.length > 0 ? " Ha már szerepelsz lent, elég az „Ez vagyok én” gombra koppintani." : ""}</p>
         <form onSubmit={(e) => { e.preventDefault(); onSave(val.trim()); }}>
           <input ref={ref} className="field" placeholder="pl. Anna" value={val} maxLength={20} onChange={(e) => setVal(e.target.value)} />
           <div className="flex gap-2 mt-3">
@@ -775,9 +797,12 @@ function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, o
                   <li key={m.id} className="flex items-center gap-2.5">
                     <span className="w-8 h-8 rounded-full grid place-items-center flex-none text-[13px] font-bold" style={{ background: initialsColor(nm), color: "#fff" }}>{nm.slice(0, 1).toUpperCase()}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-semibold truncate">{nm}{me ? " (te)" : ""}</p>
+                      <p className="text-[14px] font-semibold truncate">{nm}{me || (initial && initial.trim().toLowerCase() === nm.toLowerCase()) ? " (te)" : ""}</p>
                       <p className="text-[11px]" style={{ color: "var(--muted)" }}>aktív: {timeAgo(m.lastSeen)}</p>
                     </div>
+                    {!initial && !me && (
+                      <button onClick={() => onSave(nm)} className="px-2 py-1 rounded-lg text-[12px] font-semibold flex-none" style={{ background: "var(--surface-2)", color: "var(--accent)" }}>Ez vagyok én</button>
+                    )}
                     <button onClick={() => startEdit(m)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Átnevezés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
                     <button onClick={() => { if (confirm(`Biztosan eltávolítod: ${nm}?`)) onRemoveMember(m.id); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Eltávolítás"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
                   </li>
@@ -2016,15 +2041,24 @@ function App() {
       else { membersCol().doc(DEVICE).delete().catch(console.error); }
     }
   };
+  // egy ember több eszközön (pl. Safari + kezdőképernyő) több tag-doksi → név szerint együtt kezeljük
+  const nameKey = (s) => (s || "").trim().toLowerCase();
+  const sameNameIds = (id) => {
+    const t = members.find((m) => m.id === id);
+    if (!t || !nameKey(t.name)) return [id];
+    return members.filter((m) => nameKey(m.name) === nameKey(t.name)).map((m) => m.id);
+  };
   const renameMember = (id, n) => {
     if (!cloud) return;
-    membersCol().doc(id).set({ name: n || "" }, { merge: true }).catch(console.error);
-    if (id === DEVICE) { try { localStorage.setItem("lakotarsak.name", n || ""); } catch (e) {} setMyName(n || ""); }
+    const ids = sameNameIds(id);
+    const old = (members.find((m) => m.id === id) || {}).name;
+    ids.forEach((mid) => membersCol().doc(mid).set({ name: n || "" }, { merge: true }).catch(console.error));
+    if (ids.includes(DEVICE) || (old && nameKey(old) === nameKey(myName))) { try { localStorage.setItem("lakotarsak.name", n || ""); } catch (e) {} setMyName(n || ""); }
     showToast("Név frissítve ✓");
   };
   const removeMember = (id) => {
     if (!cloud) return;
-    membersCol().doc(id).delete().catch(console.error);
+    sameNameIds(id).forEach((mid) => membersCol().doc(mid).delete().catch(console.error));
     showToast("Lakótárs eltávolítva");
   };
 
@@ -2136,7 +2170,16 @@ function App() {
     showToast("Készlet ürítve", { label: "Visszavon", fn: () => ops.restore("inventory", items) });
   };
 
-  const namedMembers = members.filter((m) => m.name && m.name.trim());
+  // azonos nevű tagokból egyet mutatunk (a saját eszközt, különben a legutóbb aktívat)
+  const namedMembers = Object.values(members.filter((m) => m.name && m.name.trim()).reduce((acc, m) => {
+    const k = m.name.trim().toLowerCase(); const cur = acc[k];
+    if (!cur) acc[k] = m;
+    else {
+      const pick = cur.id === DEVICE ? cur : m.id === DEVICE ? m : ((m.lastSeen || 0) > (cur.lastSeen || 0) ? m : cur);
+      acc[k] = { ...pick, lastSeen: Math.max(cur.lastSeen || 0, m.lastSeen || 0) };
+    }
+    return acc;
+  }, {}));
   const memberNames = [...new Set(namedMembers.map((m) => m.name.trim()))].sort((a, b) => a.localeCompare(b, "hu"));
   const cats = data.categories || [];
   const badges = {
