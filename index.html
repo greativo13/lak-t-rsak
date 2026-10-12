@@ -170,7 +170,7 @@ const getName = () => { try { return localStorage.getItem("lakotarsak.name") || 
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-09-27.3";
+const APP_VERSION = "2026-10-12.1";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -1447,7 +1447,7 @@ function InventoryView({ items, cats, memberNames, onManageCats, onAdd, onSave, 
 }
 
 /* ================= DEBTS ================= */
-function DebtsView({ items: allItems, onAdd, onSettle, onUnsettle, onRemove, onClearArchive }) {
+function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle, onRemove, onClearArchive }) {
   // a rendezett tartozás nem törlődik, hanem az archívumba kerül (settled: true)
   const items = allItems.filter((i) => !i.settled);
   const archived = allItems.filter((i) => i.settled).sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
@@ -1472,9 +1472,47 @@ function DebtsView({ items: allItems, onAdd, onSettle, onUnsettle, onRemove, onC
     setLeaving((l) => ({ ...l, [id]: true }));
     setTimeout(() => { onSettle(id); setLeaving((l) => { const n = { ...l }; delete n[id]; return n; }); }, 480);
   };
+  const pkey = (i) => (i.payer || "?").trim() || "?";
   const totals = {};
-  items.forEach((i) => { const k = (i.payer || "?").trim() || "?"; totals[k] = (totals[k] || 0) + (Number(i.amount) || 0); });
+  items.forEach((i) => { totals[pkey(i)] = (totals[pkey(i)] || 0) + (Number(i.amount) || 0); });
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+
+  /* számoló: kijelölt tételek előjeles összege. Az elsőként kijelölt személy tételei +, a többieké − alapból
+     (így két embernél magától a különbséget adja); újabb koppintás megfordítja az előjelet, a harmadik kiveszi. */
+  const [calc, setCalc] = useState(false);
+  const [sel, setSel] = useState({}); // id -> 1 | -1
+  const [plusPayer, setPlusPayer] = useState(null);
+  const hasAmounts = items.some((i) => i.amount);
+  const selItems = items.filter((i) => sel[i.id] && i.amount);
+  const tapCalc = (i) => {
+    if (!i.amount) return;
+    const pp = selItems.length && plusPayer ? plusPayer : pkey(i);
+    if (pp !== plusPayer) setPlusPayer(pp);
+    const def = pkey(i) === pp ? 1 : -1;
+    const cur = sel[i.id];
+    const next = !cur ? def : cur === def ? -def : 0;
+    const n = { ...sel };
+    if (next) n[i.id] = next; else delete n[i.id];
+    setSel(n);
+  };
+  const selectAll = () => {
+    const withAmt = items.filter((i) => i.amount);
+    if (!withAmt.length) return;
+    const pp = (selItems.length && plusPayer) || entries[0][0]; // aki a legtöbbet fizette, az a + oldal
+    setPlusPayer(pp);
+    const n = {};
+    withAmt.forEach((i) => { n[i.id] = sel[i.id] || (pkey(i) === pp ? 1 : -1); });
+    setSel(n);
+  };
+  const result = selItems.reduce((s, i) => s + sel[i.id] * Number(i.amount), 0);
+  const perPayer = {};
+  selItems.forEach((i) => { perPayer[pkey(i)] = (perPayer[pkey(i)] || 0) + sel[i.id] * Number(i.amount); });
+  const payerParts = Object.entries(perPayer);
+  let verdict = null;
+  if (payerParts.length === 2 && payerParts[0][1] * payerParts[1][1] < 0) {
+    verdict = result === 0 ? "Kvittek vagytok 🎉" : payerParts.find((p) => (result > 0 ? p[1] > 0 : p[1] < 0))[0] + " kap vissza " + forint(Math.abs(result)) + "-ot";
+  }
+  const toggleCalc = () => { setCalc((c) => !c); setSel({}); setPlusPayer(null); };
 
   return (
     <div className="pop">
@@ -1495,12 +1533,20 @@ function DebtsView({ items: allItems, onAdd, onSettle, onUnsettle, onRemove, onC
           </div>
         </form>
       )}
-      {items.length > 1 && (
+      {(items.length > 1 || hasAmounts) && (
         <div className="mb-3">
-          <button onClick={() => setSumOpen((o) => !o)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
-            <Icon name="chevron" className="w-4 h-4" style={{ transform: sumOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} /> Összegzés személyenként
-          </button>
-          {sumOpen && (
+          <div className="flex items-center justify-between gap-2">
+            {items.length > 1 ? (
+              <button onClick={() => setSumOpen((o) => !o)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+                <Icon name="chevron" className="w-4 h-4" style={{ transform: sumOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} /> Összegzés személyenként
+              </button>
+            ) : <span />}
+            {hasAmounts && (
+              <button onClick={toggleCalc} className="px-3 py-1.5 rounded-full text-[13px] font-semibold flex-none"
+                style={calc ? { background: "var(--accent)", color: "var(--accent-ink)" } : { background: "var(--surface-2)", color: "var(--ink)" }}>🧮 Számoló{calc ? " ✕" : ""}</button>
+            )}
+          </div>
+          {sumOpen && items.length > 1 && (
             <div className="card p-3 mt-2 space-y-1.5">
               {entries.map(([p, amt]) => (
                 <div key={p} className="flex justify-between text-[14px]"><span className="truncate">{p}</span><span className="font-semibold tnum">{forint(amt)}</span></div>
@@ -1510,17 +1556,47 @@ function DebtsView({ items: allItems, onAdd, onSettle, onUnsettle, onRemove, onC
           )}
         </div>
       )}
+      {calc && (
+        <div className="card p-3 mb-3 pop" style={{ position: "sticky", top: 72, zIndex: 10, borderColor: "var(--accent)" }}>
+          {selItems.length === 0 ? (
+            <p className="text-[13px] leading-snug" style={{ color: "var(--muted)" }}>Koppints a tételekre, és összeadja őket. Újabb koppintás megfordítja az előjelet (+ / −), a harmadik kiveszi. Két embernél magától kivonja egymásból, amit fizettek.</p>
+          ) : (
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[12px] font-semibold" style={{ color: "var(--muted)" }}>Eredmény ({selItems.length} tétel)</span>
+                <span className="font-display text-[24px] font-semibold tnum leading-none">{forint(result)}</span>
+              </div>
+              <p className="text-[12px] mt-1 tnum" style={{ color: "var(--muted)" }}>{payerParts.map(([p, v]) => p + " " + (v < 0 ? "−" : "+") + forint(Math.abs(v))).join("  ·  ")}</p>
+              {verdict && <p className="text-[14px] font-semibold mt-1.5" style={{ color: "var(--green)" }}>→ {verdict}</p>}
+              {verdict && result !== 0 && <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>Ha közös (felezett) költség volt: {forint(Math.round(Math.abs(result) / 2))}</p>}
+            </div>
+          )}
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={selectAll} className="px-3 py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--ink)" }}>Mind</button>
+            <button onClick={() => { setSel({}); setPlusPayer(null); }} disabled={!selItems.length} className="px-3 py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)", opacity: selItems.length ? 1 : 0.5 }}>Nullázás</button>
+            <button onClick={() => { onSettleMany(selItems.map((i) => i.id)); setSel({}); setPlusPayer(null); }} disabled={!selItems.length} className="btn-accent flex-1 py-2 text-[13px]" style={{ opacity: selItems.length ? 1 : 0.5 }}>✓ Kijelöltek rendezése</button>
+          </div>
+        </div>
+      )}
       {items.length === 0 ? (
         <Empty>Nincs nyitott tartozás. 🎉</Empty>
       ) : (
         <ul className="space-y-2">
           {items.map((i) => {
             const gone = leaving[i.id];
+            const sg = calc ? sel[i.id] : 0;
             return (
-              <li key={i.id} className={"card p-3 flex items-center gap-3 " + (gone ? "row-leave" : "")}>
+              <li key={i.id} className={"card p-3 flex items-center gap-3 " + (gone ? "row-leave" : "")}
+                onClick={calc ? () => tapCalc(i) : undefined}
+                style={calc ? { cursor: i.amount ? "pointer" : "default", opacity: i.amount ? 1 : 0.45, boxShadow: sg ? "inset 0 0 0 2px var(" + (sg > 0 ? "--green" : "--red") + ")" : undefined } : null}>
+                {calc ? (
+                  <span className="w-7 h-7 rounded-full grid place-items-center flex-none font-bold text-[17px] leading-none"
+                    style={sg ? { background: sg > 0 ? "var(--green-bg)" : "var(--red-bg)", color: sg > 0 ? "var(--green)" : "var(--red)" } : { border: "2px solid var(--line)" }}>{sg ? (sg > 0 ? "+" : "−") : ""}</span>
+                ) : (
                 <button className="checkbox" data-on={gone} onClick={() => !gone && settle(i.id)} aria-label="Rendezve">
                   {gone && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}
                 </button>
+                )}
                 <div className="flex-1 min-w-0" style={gone ? { color: "var(--muted)" } : null}>
                   <p className="text-[14px] leading-snug">
                     <span className="font-semibold">{i.payer}</span>
@@ -1532,7 +1608,7 @@ function DebtsView({ items: allItems, onAdd, onSettle, onUnsettle, onRemove, onC
                   </p>
                   <Meta by={i.by} ts={i.createdAt} />
                 </div>
-                <button onClick={() => onRemove(i.id)} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+                {!calc && <button onClick={() => onRemove(i.id)} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>}
               </li>
             );
           })}
@@ -2277,6 +2353,12 @@ function App() {
             onSettle={(id) => {
               ops.update("debts", id, { settled: true, settledAt: Date.now(), settledBy: getName() || null });
               showToast("Archívumba került ✓", { label: "Visszavon", fn: () => ops.update("debts", id, { settled: false, settledAt: null, settledBy: null }) });
+            }}
+            onSettleMany={(ids) => {
+              if (!ids.length) return;
+              const at = Date.now();
+              ids.forEach((id) => ops.update("debts", id, { settled: true, settledAt: at, settledBy: getName() || null }));
+              showToast(ids.length + " tétel archiválva ✓", { label: "Visszavon", fn: () => ids.forEach((id) => ops.update("debts", id, { settled: false, settledAt: null, settledBy: null })) });
             }}
             onUnsettle={(id) => { ops.update("debts", id, { settled: false, settledAt: null, settledBy: null }); showToast("Visszakerült a nyitottak közé"); }}
             onRemove={(id) => removeWithUndo("debts", id)}
