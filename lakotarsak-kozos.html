@@ -171,7 +171,7 @@ const getName = () => { try { return localStorage.getItem("lakotarsak.name") || 
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-10-28.1";
+const APP_VERSION = "2026-10-28.2";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -864,7 +864,7 @@ function FilterModal({ authorNames, myName, hidden, onToggle, onAll, onNone, onC
 function TransferForm({ item, memberNames, onSubmit, onCancel }) {
   return (
     <DebtForm memberNames={memberNames} submitLabel="Áthozás tartozásba"
-      initial={{ payer: getName(), note: item.name + (item.qty ? ` (${item.qty})` : ""), split: [] }}
+      initial={{ payer: getName(), note: item.name + (item.qty ? ` (${item.qty})` : "") }}
       intro={<p className="text-[12px] pt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}><Icon name="wallet" className="w-3.5 h-3.5 flex-none" /> Valaki másnak vetted meg? Told át a tartozásokhoz.</p>}
       className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}
       onSubmit={onSubmit} onCancel={onCancel} />
@@ -1443,70 +1443,19 @@ function canonName(n, memberNames) {
   return m || t;
 }
 
-// egyenleg: aki fizetett, annak jár a többiek része; a kire-vonatkozik (split) listán egyenlő arányban osztjuk
-function computeBalances(items, memberNames) {
-  const disp = {};
-  const name = (n) => { const k = nk(n); if (!disp[k]) disp[k] = canonName(n, memberNames); return k; };
-  const net = {};
-  const included = [];
-  let missing = 0;
-  items.forEach((i) => {
-    const amt = Number(i.amount) || 0;
-    const split = (i.split || []).filter((s) => nk(s));
-    if (!amt) return;
-    if (!split.length) { missing++; return; }
-    included.push(i.id);
-    const p = name(i.payer);
-    const share = amt / split.length;
-    net[p] = (net[p] || 0) + amt;
-    split.forEach((s) => { const k = name(s); net[k] = (net[k] || 0) - share; });
-  });
-  const cred = Object.entries(net).filter(([, v]) => v > 0.5).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
-  const debt = Object.entries(net).filter(([, v]) => v < -0.5).map(([k, v]) => ({ k, v: -v })).sort((a, b) => b.v - a.v);
-  const transfers = [];
-  let ci = 0, di = 0;
-  while (ci < cred.length && di < debt.length) {
-    const x = Math.min(cred[ci].v, debt[di].v);
-    if (Math.round(x) > 0) transfers.push({ from: disp[debt[di].k], to: disp[cred[ci].k], amount: Math.round(x) });
-    cred[ci].v -= x; debt[di].v -= x;
-    if (cred[ci].v < 0.5) ci++;
-    if (debt[di].v < 0.5) di++;
-  }
-  return { transfers, included, missing };
-}
-
-function SplitPicker({ value, onChange, memberNames, payer }) {
-  const names = [...new Set([...(memberNames || []), ...(value || []), payer].map((n) => (n || "").trim()).filter(Boolean))]
-    .filter((n, i, a) => a.findIndex((x) => nk(x) === nk(n)) === i)
-    .sort((a, b) => a.localeCompare(b, "hu"));
-  const has = (n) => (value || []).some((x) => nk(x) === nk(n));
-  const toggle = (n) => onChange(has(n) ? value.filter((x) => nk(x) !== nk(n)) : [...(value || []), n]);
-  const allOn = names.length > 0 && names.every(has);
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {names.length > 1 && <Chip on={allOn} onClick={() => onChange(allOn ? [] : names)}>👥 Mindenki</Chip>}
-      {names.map((n) => <Chip key={n} on={has(n)} onClick={() => toggle(n)}>{n}{nk(n) === nk(payer) ? " (fizető)" : ""}</Chip>)}
-    </div>
-  );
-}
-
 function DebtForm({ initial, memberNames, submitLabel, intro, onSubmit, onCancel, className, style }) {
   const [payer, setPayer] = useState(initial && initial.payer != null ? initial.payer : getName());
   const [amount, setAmount] = useState(initial && initial.amount ? String(initial.amount) : "");
   const [note, setNote] = useState(initial && initial.note ? initial.note : "");
-  const [split, setSplit] = useState(initial && Array.isArray(initial.split) ? initial.split : []);
   const payerRef = useRef(null);
   const busy = useRef(false);
   const amt = String(amount).trim() ? Math.round(Number(amount)) || 0 : 0;
-  const owers = split.filter((s) => nk(s) && nk(s) !== nk(payer));
-  const share = amt && split.length ? Math.round(amt / split.length) : 0;
   const submit = (e) => {
     e.preventDefault();
     if (!payer.trim()) { payerRef.current && payerRef.current.focus(); return; }
     if (busy.current) return; busy.current = true; setTimeout(() => { busy.current = false; }, 400);
-    const cleanSplit = split.map((s) => canonName(s, memberNames)).filter((s, i, a) => s && a.findIndex((x) => nk(x) === nk(s)) === i);
-    onSubmit({ payer: canonName(payer, memberNames), amount: String(amount).trim() ? amt : null, note: note.trim(), split: cleanSplit });
-    if (!initial) { setPayer(getName()); setAmount(""); setNote(""); setSplit([]); }
+    onSubmit({ payer: canonName(payer, memberNames), amount: String(amount).trim() ? amt : null, note: note.trim() });
+    if (!initial) { setPayer(getName()); setAmount(""); setNote(""); }
   };
   const others = (memberNames || []).filter((n) => nk(n) !== nk(payer));
   return (
@@ -1522,17 +1471,6 @@ function DebtForm({ initial, memberNames, submitLabel, intro, onSubmit, onCancel
       </div>
       <input className="field tnum" inputMode="numeric" placeholder="Mennyit? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
       <input className="field" placeholder="Miért? (pl. közös bevásárlás) — opcionális" value={note} onChange={(e) => setNote(e.target.value)} />
-      <div>
-        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kire vonatkozik? (opcionális — ebből számol egyenleget)</p>
-        <SplitPicker value={split} onChange={setSplit} memberNames={memberNames} payer={payer.trim()} />
-        {split.length > 0 && (
-          <p className="text-[12px] mt-1.5 tnum" style={{ color: "var(--muted)" }}>
-            {!amt ? "Összeg nélkül nem kerül az egyenlegbe."
-              : owers.length === 0 ? "Csak a fizetőre vonatkozik — senki nem tartozik."
-              : owers.map((o) => o + " → " + (payer.trim() || "?") + ": " + forint(share)).join("  ·  ")}
-          </p>
-        )}
-      </div>
       <div className="flex gap-2 pt-0.5">
         <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{submitLabel || "Hozzáadás"}</button>
         <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
@@ -1560,7 +1498,6 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
   const totals = {};
   items.forEach((i) => { totals[pkey(i)] = (totals[pkey(i)] || 0) + (Number(i.amount) || 0); });
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-  const bal = computeBalances(items, memberNames);
 
   /* számoló: kijelölt tételek előjeles összege. Az elsőként kijelölt személy tételei +, a többieké − alapból
      (így két embernél magától a különbséget adja); újabb koppintás megfordítja az előjelet, a harmadik kiveszi. */
@@ -1596,8 +1533,6 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
   let verdict = null;
   if (payerParts.length === 2 && payerParts[0][1] * payerParts[1][1] < 0) {
     verdict = result === 0 ? "Kvittek vagytok 🎉" : disp[payerParts.find((p) => (result > 0 ? p[1] > 0 : p[1] < 0))[0]] + " kap vissza " + forint(Math.abs(result)) + "-ot";
-  } else if (payerParts.length > 2) {
-    verdict = "Több embernél az Egyenleg (fent) mutatja pontosan, ki kinek mennyit adjon.";
   }
   const toggleCalc = () => { setCalc((c) => !c); setSel({}); setPlusPayer(null); setEditId(null); };
 
@@ -1610,27 +1545,6 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
           </button>
         } />
       {open && <DebtForm memberNames={memberNames} onSubmit={(d) => onAdd(d)} onCancel={() => setOpen(false)} />}
-
-      {bal.included.length > 0 && (
-        <div className="card p-3 mb-3" style={{ borderColor: "var(--accent)" }}>
-          <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Egyenleg — ki kinek mennyit adjon</p>
-          {bal.transfers.length === 0 ? (
-            <p className="text-[15px] font-semibold" style={{ color: "var(--green)" }}>Kvittek vagytok 🎉</p>
-          ) : (
-            <ul className="space-y-1">
-              {bal.transfers.map((t, idx) => (
-                <li key={idx} className="flex items-center justify-between gap-2 text-[15px]">
-                  <span className="min-w-0 truncate"><b>{t.from}</b> <span style={{ color: "var(--muted)" }}>→</span> <b>{t.to}</b></span>
-                  <span className="font-semibold tnum flex-none">{forint(t.amount)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {bal.missing > 0 && <p className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>{bal.missing} tételnél nincs megadva, kire vonatkozik — ezek nincsenek benne.</p>}
-          <button onClick={() => { if (confirm("Megtörtént az átutalás? Az egyenlegben szereplő " + bal.included.length + " tétel az archívumba kerül.")) onSettleMany(bal.included); }}
-            className="mt-2.5 w-full py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--accent)" }}>✓ Kiegyenlítettük</button>
-        </div>
-      )}
 
       {(items.length > 1 || hasAmounts) && (
         <div className="mb-3">
@@ -1666,8 +1580,8 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
                 <span className="font-display text-[24px] font-semibold tnum leading-none">{forint(result)}</span>
               </div>
               <p className="text-[12px] mt-1 tnum" style={{ color: "var(--muted)" }}>{payerParts.map(([p, v]) => disp[p] + " " + (v < 0 ? "−" : "+") + forint(Math.abs(v))).join("  ·  ")}</p>
-              {verdict && <p className="text-[14px] font-semibold mt-1.5" style={{ color: payerParts.length > 2 ? "var(--muted)" : "var(--green)" }}>→ {verdict}</p>}
-              {verdict && payerParts.length === 2 && result !== 0 && <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>Ha közös (felezett) költség volt: {forint(Math.round(Math.abs(result) / 2))}</p>}
+              {verdict && <p className="text-[14px] font-semibold mt-1.5" style={{ color: "var(--green)" }}>→ {verdict}</p>}
+              {verdict && result !== 0 && <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>Ha közös (felezett) költség volt: {forint(Math.round(Math.abs(result) / 2))}</p>}
             </div>
           )}
           <div className="flex gap-2 mt-2.5">
@@ -1690,8 +1604,6 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
             );
             const gone = leaving[i.id];
             const sg = calc ? sel[i.id] : 0;
-            const split = (i.split || []).filter(Boolean);
-            const owers = split.filter((s) => nk(s) !== nk(i.payer));
             return (
               <li key={i.id} className={"card p-3 flex items-center gap-3 " + (gone ? "row-leave" : "")}
                 onClick={calc ? () => tapCalc(i) : undefined}
@@ -1713,11 +1625,6 @@ function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSe
                     <Icon name="arrow" className="w-3.5 h-3.5 flex-none" />
                     <span className="truncate">{i.note ? i.note : "rendezendő"}</span>
                   </p>
-                  {split.length > 0 && (
-                    <p className="text-[12px] mt-0.5 truncate tnum" style={{ color: "var(--muted)" }}>
-                      👥 {owers.length ? owers.join(", ") : "csak " + i.payer}{i.amount && owers.length ? " · fejenként " + forint(Math.round(Number(i.amount) / split.length)) : ""}
-                    </p>
-                  )}
                   <Meta by={i.by} ts={i.createdAt} />
                 </div>
                 {!calc && <button onClick={() => { setEditId(i.id); setOpen(false); }} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>}

@@ -1,6 +1,6 @@
 # Lakótársak
 
-Közös háztartás-app lakótársaknak: bevásárlólista, otthoni készlet, tartozások (egyenleggel) és szabadidő (társasjáték-sorsoló + film/sorozat match).
+Közös háztartás-app lakótársaknak: bevásárlólista, otthoni készlet, tartozások és szabadidő (társasjáték-sorsoló + film/sorozat match).
 
 Egyfájlos alkalmazás (React + Tailwind + Firebase Firestore). A közzétett fájl az **`index.html`**, élő címe: https://greativo13.github.io/lak-t-rsak/
 
