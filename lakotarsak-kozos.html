@@ -113,7 +113,7 @@
   .seg { border:1px solid var(--line); background:var(--surface-2); border-radius:12px; padding:3px; display:grid; grid-template-columns:repeat(3,1fr); gap:3px; }
   .seg > button { border-radius:9px; padding:9px 4px; font-weight:600; font-size:13px; transition:background .15s, color .15s, box-shadow .15s; }
 
-  .toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); z-index:50; background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:999px; font-size:13px; font-weight:600; box-shadow:var(--shadow); animation:pop .18s ease; display:flex; align-items:center; gap:14px; max-width:calc(100vw - 32px); }
+  .toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); z-index:70; background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:999px; font-size:13px; font-weight:600; box-shadow:var(--shadow); animation:pop .18s ease; display:flex; align-items:center; gap:14px; max-width:calc(100vw - 32px); }
   .toast .undo { color:var(--ground); text-decoration:underline; font-weight:700; white-space:nowrap; }
 
   .overlay { position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.45); display:grid; place-items:center; padding:16px; animation:pop .15s ease; }
@@ -166,11 +166,12 @@ const DEVICE = (() => {
     return d;
   } catch (e) { return "d" + Math.random().toString(36).slice(2, 10); }
 })();
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const getName = () => { try { return localStorage.getItem("lakotarsak.name") || ""; } catch (e) { return ""; } };
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-10-12.1";
+const APP_VERSION = "2026-10-28.1";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -359,7 +360,10 @@ function useBackend() {
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+    try {
+      const out = cloud ? JSON.stringify(data, (k, v) => (k === "img" && typeof v === "string" && v.length > 200 ? null : v)) : JSON.stringify(data);
+      localStorage.setItem(CACHE_KEY, out);
+    } catch (e) {}
   }, [data]);
 
   const ops = {
@@ -713,7 +717,7 @@ function CategoryManager({ categories, onAdd, onUpdate, onRemove, onClose }) {
                   <div className="w-9 h-9 rounded-lg grid place-items-center text-[18px] flex-none" style={{ background: tint(c.color, 0.16), boxShadow: `inset 0 0 0 1px ${tint(c.color, 0.35)}` }}>{c.icon}</div>
                   <span className="flex-1 min-w-0 text-[14px] font-semibold truncate">{c.name}</span>
                   <button onClick={() => startEdit(c)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
-                  <button onClick={() => { if (confirm(`Törlöd a(z) „${c.name}” kategóriát?`)) onRemove(c.id); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+                  <button onClick={() => onRemove(c.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
                 </li>
               ))}
             </ul>
@@ -857,32 +861,13 @@ function FilterModal({ authorNames, myName, hidden, onToggle, onAll, onNone, onC
   );
 }
 
-function TransferForm({ item, onSubmit, onCancel }) {
-  const [payer, setPayer] = useState(getName());
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState(item.name + (item.qty ? ` (${item.qty})` : ""));
-  const ref = useRef(null);
-  const busy = useRef(false);
-  const submit = (e) => {
-    e.preventDefault();
-    if (busy.current) return;
-    if (!payer.trim()) { ref.current && ref.current.focus(); return; }
-    busy.current = true;
-    onSubmit({ payer: payer.trim(), amount: String(amount).trim() ? Math.round(Number(amount)) || 0 : null, note: note.trim() });
-  };
+function TransferForm({ item, memberNames, onSubmit, onCancel }) {
   return (
-    <form onSubmit={submit} className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}>
-      <p className="text-[12px] pt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
-        <Icon name="wallet" className="w-3.5 h-3.5 flex-none" /> Valaki másnak vetted meg? Told át a tartozásokhoz.
-      </p>
-      <input ref={ref} className="field" placeholder="Ki fizette ki? (pl. Anna)" value={payer} onChange={(e) => setPayer(e.target.value)} />
-      <input className="field tnum" inputMode="numeric" placeholder="Mennyibe került? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
-      <input className="field" placeholder="Megjegyzés" value={note} onChange={(e) => setNote(e.target.value)} />
-      <div className="flex gap-2">
-        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Áthozás tartozásba</button>
-        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface)", color: "var(--muted)" }}>Mégse</button>
-      </div>
-    </form>
+    <DebtForm memberNames={memberNames} submitLabel="Áthozás tartozásba"
+      initial={{ payer: getName(), note: item.name + (item.qty ? ` (${item.qty})` : ""), split: [] }}
+      intro={<p className="text-[12px] pt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}><Icon name="wallet" className="w-3.5 h-3.5 flex-none" /> Valaki másnak vetted meg? Told át a tartozásokhoz.</p>}
+      className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}
+      onSubmit={onSubmit} onCancel={onCancel} />
   );
 }
 
@@ -1045,6 +1030,9 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
           <p className={"font-semibold text-[15px] leading-tight truncate " + (i.done ? "line-through" : "")} style={{ color: i.done ? "var(--muted)" : "var(--ink)" }}>{i.name}</p>
           <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
             {i.qty && <span className="text-[12px] flex-none" style={{ color: "var(--muted)" }}>{i.qty}</span>}
+            {i.done && i.doneBy && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--green-bg)", color: "var(--green)" }}>✓ {i.doneBy}</span>
+            )}
             {i.from === "raktar" && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>raktárból</span>
             )}
@@ -1073,7 +1061,7 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
         </button>
       </div>
       {transferId === i.id && (
-        <TransferForm item={i} onSubmit={(debt) => doTransfer(i, debt)} onCancel={() => setTransferId(null)} />
+        <TransferForm item={i} memberNames={memberNames} onSubmit={(debt) => doTransfer(i, debt)} onCancel={() => setTransferId(null)} />
       )}
     </li>
     );
@@ -1447,35 +1435,132 @@ function InventoryView({ items, cats, memberNames, onManageCats, onAdd, onSave, 
 }
 
 /* ================= DEBTS ================= */
-function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle, onRemove, onClearArchive }) {
+const nk = (s) => (s || "").trim().toLowerCase();
+// a beírt nevet a lakótárs-lista írásmódjára igazítja („anna” → „Anna”), hogy ne legyen két külön ember
+function canonName(n, memberNames) {
+  const t = (n || "").trim();
+  const m = (memberNames || []).find((x) => nk(x) === nk(t));
+  return m || t;
+}
+
+// egyenleg: aki fizetett, annak jár a többiek része; a kire-vonatkozik (split) listán egyenlő arányban osztjuk
+function computeBalances(items, memberNames) {
+  const disp = {};
+  const name = (n) => { const k = nk(n); if (!disp[k]) disp[k] = canonName(n, memberNames); return k; };
+  const net = {};
+  const included = [];
+  let missing = 0;
+  items.forEach((i) => {
+    const amt = Number(i.amount) || 0;
+    const split = (i.split || []).filter((s) => nk(s));
+    if (!amt) return;
+    if (!split.length) { missing++; return; }
+    included.push(i.id);
+    const p = name(i.payer);
+    const share = amt / split.length;
+    net[p] = (net[p] || 0) + amt;
+    split.forEach((s) => { const k = name(s); net[k] = (net[k] || 0) - share; });
+  });
+  const cred = Object.entries(net).filter(([, v]) => v > 0.5).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
+  const debt = Object.entries(net).filter(([, v]) => v < -0.5).map(([k, v]) => ({ k, v: -v })).sort((a, b) => b.v - a.v);
+  const transfers = [];
+  let ci = 0, di = 0;
+  while (ci < cred.length && di < debt.length) {
+    const x = Math.min(cred[ci].v, debt[di].v);
+    if (Math.round(x) > 0) transfers.push({ from: disp[debt[di].k], to: disp[cred[ci].k], amount: Math.round(x) });
+    cred[ci].v -= x; debt[di].v -= x;
+    if (cred[ci].v < 0.5) ci++;
+    if (debt[di].v < 0.5) di++;
+  }
+  return { transfers, included, missing };
+}
+
+function SplitPicker({ value, onChange, memberNames, payer }) {
+  const names = [...new Set([...(memberNames || []), ...(value || []), payer].map((n) => (n || "").trim()).filter(Boolean))]
+    .filter((n, i, a) => a.findIndex((x) => nk(x) === nk(n)) === i)
+    .sort((a, b) => a.localeCompare(b, "hu"));
+  const has = (n) => (value || []).some((x) => nk(x) === nk(n));
+  const toggle = (n) => onChange(has(n) ? value.filter((x) => nk(x) !== nk(n)) : [...(value || []), n]);
+  const allOn = names.length > 0 && names.every(has);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {names.length > 1 && <Chip on={allOn} onClick={() => onChange(allOn ? [] : names)}>👥 Mindenki</Chip>}
+      {names.map((n) => <Chip key={n} on={has(n)} onClick={() => toggle(n)}>{n}{nk(n) === nk(payer) ? " (fizető)" : ""}</Chip>)}
+    </div>
+  );
+}
+
+function DebtForm({ initial, memberNames, submitLabel, intro, onSubmit, onCancel, className, style }) {
+  const [payer, setPayer] = useState(initial && initial.payer != null ? initial.payer : getName());
+  const [amount, setAmount] = useState(initial && initial.amount ? String(initial.amount) : "");
+  const [note, setNote] = useState(initial && initial.note ? initial.note : "");
+  const [split, setSplit] = useState(initial && Array.isArray(initial.split) ? initial.split : []);
+  const payerRef = useRef(null);
+  const busy = useRef(false);
+  const amt = String(amount).trim() ? Math.round(Number(amount)) || 0 : 0;
+  const owers = split.filter((s) => nk(s) && nk(s) !== nk(payer));
+  const share = amt && split.length ? Math.round(amt / split.length) : 0;
+  const submit = (e) => {
+    e.preventDefault();
+    if (!payer.trim()) { payerRef.current && payerRef.current.focus(); return; }
+    if (busy.current) return; busy.current = true; setTimeout(() => { busy.current = false; }, 400);
+    const cleanSplit = split.map((s) => canonName(s, memberNames)).filter((s, i, a) => s && a.findIndex((x) => nk(x) === nk(s)) === i);
+    onSubmit({ payer: canonName(payer, memberNames), amount: String(amount).trim() ? amt : null, note: note.trim(), split: cleanSplit });
+    if (!initial) { setPayer(getName()); setAmount(""); setNote(""); setSplit([]); }
+  };
+  const others = (memberNames || []).filter((n) => nk(n) !== nk(payer));
+  return (
+    <form onSubmit={submit} className={className || "card p-3.5 mb-4 pop space-y-2.5"} style={style}>
+      {intro}
+      <div>
+        <input ref={payerRef} className="field" placeholder="Ki fizette? (pl. Anna)" value={payer} onChange={(e) => setPayer(e.target.value)} />
+        {others.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {others.map((n) => <Chip key={n} on={false} onClick={() => setPayer(n)}>{n}</Chip>)}
+          </div>
+        )}
+      </div>
+      <input className="field tnum" inputMode="numeric" placeholder="Mennyit? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
+      <input className="field" placeholder="Miért? (pl. közös bevásárlás) — opcionális" value={note} onChange={(e) => setNote(e.target.value)} />
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Kire vonatkozik? (opcionális — ebből számol egyenleget)</p>
+        <SplitPicker value={split} onChange={setSplit} memberNames={memberNames} payer={payer.trim()} />
+        {split.length > 0 && (
+          <p className="text-[12px] mt-1.5 tnum" style={{ color: "var(--muted)" }}>
+            {!amt ? "Összeg nélkül nem kerül az egyenlegbe."
+              : owers.length === 0 ? "Csak a fizetőre vonatkozik — senki nem tartozik."
+              : owers.map((o) => o + " → " + (payer.trim() || "?") + ": " + forint(share)).join("  ·  ")}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-2 pt-0.5">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{submitLabel || "Hozzáadás"}</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </form>
+  );
+}
+
+function DebtsView({ items: allItems, memberNames, onAdd, onEdit, onSettle, onSettleMany, onUnsettle, onRemove, onClearArchive }) {
   // a rendezett tartozás nem törlődik, hanem az archívumba kerül (settled: true)
   const items = allItems.filter((i) => !i.settled);
   const archived = allItems.filter((i) => i.settled).sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
   const [archOpen, setArchOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const [payer, setPayer] = useState(getName());
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
+  const [editId, setEditId] = useState(null);
   const [leaving, setLeaving] = useState({});
   const [sumOpen, setSumOpen] = useState(false);
-  const payerRef = useRef(null);
-  const busy = useRef(false);
-  const reset = () => { setPayer(getName()); setAmount(""); setNote(""); };
-  const submit = (e) => {
-    e.preventDefault();
-    if (!payer.trim()) { payerRef.current && payerRef.current.focus(); return; }
-    if (busy.current) return; busy.current = true; setTimeout(() => { busy.current = false; }, 400);
-    onAdd({ payer: payer.trim(), amount: String(amount).trim() ? Math.round(Number(amount)) || 0 : null, note: note.trim() });
-    reset();
-  };
   const settle = (id) => {
     setLeaving((l) => ({ ...l, [id]: true }));
     setTimeout(() => { onSettle(id); setLeaving((l) => { const n = { ...l }; delete n[id]; return n; }); }, 480);
   };
-  const pkey = (i) => (i.payer || "?").trim() || "?";
+  // név szerint (kis/nagybetűtől függetlenül) csoportosít
+  const disp = {};
+  const pkey = (i) => { const k = nk(i.payer) || "?"; if (!disp[k]) disp[k] = canonName(i.payer, memberNames) || "?"; return k; };
   const totals = {};
   items.forEach((i) => { totals[pkey(i)] = (totals[pkey(i)] || 0) + (Number(i.amount) || 0); });
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const bal = computeBalances(items, memberNames);
 
   /* számoló: kijelölt tételek előjeles összege. Az elsőként kijelölt személy tételei +, a többieké − alapból
      (így két embernél magától a különbséget adja); újabb koppintás megfordítja az előjelet, a harmadik kiveszi. */
@@ -1510,29 +1595,43 @@ function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle,
   const payerParts = Object.entries(perPayer);
   let verdict = null;
   if (payerParts.length === 2 && payerParts[0][1] * payerParts[1][1] < 0) {
-    verdict = result === 0 ? "Kvittek vagytok 🎉" : payerParts.find((p) => (result > 0 ? p[1] > 0 : p[1] < 0))[0] + " kap vissza " + forint(Math.abs(result)) + "-ot";
+    verdict = result === 0 ? "Kvittek vagytok 🎉" : disp[payerParts.find((p) => (result > 0 ? p[1] > 0 : p[1] < 0))[0]] + " kap vissza " + forint(Math.abs(result)) + "-ot";
+  } else if (payerParts.length > 2) {
+    verdict = "Több embernél az Egyenleg (fent) mutatja pontosan, ki kinek mennyit adjon.";
   }
-  const toggleCalc = () => { setCalc((c) => !c); setSel({}); setPlusPayer(null); };
+  const toggleCalc = () => { setCalc((c) => !c); setSel({}); setPlusPayer(null); setEditId(null); };
 
   return (
     <div className="pop">
       <SectionHead title="Ki kinek tartozik" hint={items.length ? `${items.length} nyitott tartozás` : "Nyitott tartozások"}
         action={
-          <button onClick={() => { setOpen((o) => !o); setPayer(getName()); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
+          <button onClick={() => { setOpen((o) => !o); setEditId(null); }} className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
             <Icon name="plus" className="w-[18px] h-[18px]" /> Új
           </button>
         } />
-      {open && (
-        <form onSubmit={submit} className="card p-3.5 mb-4 pop space-y-2.5">
-          <input ref={payerRef} className="field" placeholder="Ki fizette? (pl. Anna)" value={payer} onChange={(e) => setPayer(e.target.value)} />
-          <input className="field tnum" inputMode="numeric" placeholder="Mennyit? (Ft) — opcionális" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
-          <input className="field" placeholder="Miért? (pl. közös bevásárlás) — opcionális" value={note} onChange={(e) => setNote(e.target.value)} />
-          <div className="flex gap-2 pt-0.5">
-            <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Hozzáadás</button>
-            <button type="button" onClick={() => { setOpen(false); reset(); }} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
-          </div>
-        </form>
+      {open && <DebtForm memberNames={memberNames} onSubmit={(d) => onAdd(d)} onCancel={() => setOpen(false)} />}
+
+      {bal.included.length > 0 && (
+        <div className="card p-3 mb-3" style={{ borderColor: "var(--accent)" }}>
+          <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Egyenleg — ki kinek mennyit adjon</p>
+          {bal.transfers.length === 0 ? (
+            <p className="text-[15px] font-semibold" style={{ color: "var(--green)" }}>Kvittek vagytok 🎉</p>
+          ) : (
+            <ul className="space-y-1">
+              {bal.transfers.map((t, idx) => (
+                <li key={idx} className="flex items-center justify-between gap-2 text-[15px]">
+                  <span className="min-w-0 truncate"><b>{t.from}</b> <span style={{ color: "var(--muted)" }}>→</span> <b>{t.to}</b></span>
+                  <span className="font-semibold tnum flex-none">{forint(t.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {bal.missing > 0 && <p className="text-[11px] mt-1.5" style={{ color: "var(--muted)" }}>{bal.missing} tételnél nincs megadva, kire vonatkozik — ezek nincsenek benne.</p>}
+          <button onClick={() => { if (confirm("Megtörtént az átutalás? Az egyenlegben szereplő " + bal.included.length + " tétel az archívumba kerül.")) onSettleMany(bal.included); }}
+            className="mt-2.5 w-full py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--accent)" }}>✓ Kiegyenlítettük</button>
+        </div>
       )}
+
       {(items.length > 1 || hasAmounts) && (
         <div className="mb-3">
           <div className="flex items-center justify-between gap-2">
@@ -1549,7 +1648,7 @@ function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle,
           {sumOpen && items.length > 1 && (
             <div className="card p-3 mt-2 space-y-1.5">
               {entries.map(([p, amt]) => (
-                <div key={p} className="flex justify-between text-[14px]"><span className="truncate">{p}</span><span className="font-semibold tnum">{forint(amt)}</span></div>
+                <div key={p} className="flex justify-between text-[14px]"><span className="truncate">{disp[p]}</span><span className="font-semibold tnum">{forint(amt)}</span></div>
               ))}
               <p className="text-[11px] pt-1" style={{ color: "var(--muted)" }}>Összesen kifizetve, ami még rendezésre vár.</p>
             </div>
@@ -1566,9 +1665,9 @@ function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle,
                 <span className="text-[12px] font-semibold" style={{ color: "var(--muted)" }}>Eredmény ({selItems.length} tétel)</span>
                 <span className="font-display text-[24px] font-semibold tnum leading-none">{forint(result)}</span>
               </div>
-              <p className="text-[12px] mt-1 tnum" style={{ color: "var(--muted)" }}>{payerParts.map(([p, v]) => p + " " + (v < 0 ? "−" : "+") + forint(Math.abs(v))).join("  ·  ")}</p>
-              {verdict && <p className="text-[14px] font-semibold mt-1.5" style={{ color: "var(--green)" }}>→ {verdict}</p>}
-              {verdict && result !== 0 && <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>Ha közös (felezett) költség volt: {forint(Math.round(Math.abs(result) / 2))}</p>}
+              <p className="text-[12px] mt-1 tnum" style={{ color: "var(--muted)" }}>{payerParts.map(([p, v]) => disp[p] + " " + (v < 0 ? "−" : "+") + forint(Math.abs(v))).join("  ·  ")}</p>
+              {verdict && <p className="text-[14px] font-semibold mt-1.5" style={{ color: payerParts.length > 2 ? "var(--muted)" : "var(--green)" }}>→ {verdict}</p>}
+              {verdict && payerParts.length === 2 && result !== 0 && <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>Ha közös (felezett) költség volt: {forint(Math.round(Math.abs(result) / 2))}</p>}
             </div>
           )}
           <div className="flex gap-2 mt-2.5">
@@ -1583,8 +1682,16 @@ function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle,
       ) : (
         <ul className="space-y-2">
           {items.map((i) => {
+            if (editId === i.id && !calc) return (
+              <li key={i.id}>
+                <DebtForm initial={i} memberNames={memberNames} submitLabel="Mentés"
+                  onSubmit={(d) => { onEdit(i.id, d); setEditId(null); }} onCancel={() => setEditId(null)} />
+              </li>
+            );
             const gone = leaving[i.id];
             const sg = calc ? sel[i.id] : 0;
+            const split = (i.split || []).filter(Boolean);
+            const owers = split.filter((s) => nk(s) !== nk(i.payer));
             return (
               <li key={i.id} className={"card p-3 flex items-center gap-3 " + (gone ? "row-leave" : "")}
                 onClick={calc ? () => tapCalc(i) : undefined}
@@ -1606,8 +1713,14 @@ function DebtsView({ items: allItems, onAdd, onSettle, onSettleMany, onUnsettle,
                     <Icon name="arrow" className="w-3.5 h-3.5 flex-none" />
                     <span className="truncate">{i.note ? i.note : "rendezendő"}</span>
                   </p>
+                  {split.length > 0 && (
+                    <p className="text-[12px] mt-0.5 truncate tnum" style={{ color: "var(--muted)" }}>
+                      👥 {owers.length ? owers.join(", ") : "csak " + i.payer}{i.amount && owers.length ? " · fejenként " + forint(Math.round(Number(i.amount) / split.length)) : ""}
+                    </p>
+                  )}
                   <Meta by={i.by} ts={i.createdAt} />
                 </div>
+                {!calc && <button onClick={() => { setEditId(i.id); setOpen(false); }} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés"><Icon name="edit" className="w-[18px] h-[18px]" /></button>}
                 {!calc && <button onClick={() => onRemove(i.id)} className="p-2 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>}
               </li>
             );
@@ -1877,7 +1990,10 @@ function MoviesView({ watchlist, onAddWatch, onEditWatch, onRemoveWatch, onToast
   const options = (round && round.options) || [];
   const remaining = options.filter((o) => !decided.has(o.key));
   const likeCount = {};
-  swipes.forEach((s) => (s.likes || []).forEach((k) => { likeCount[k] = (likeCount[k] || 0) + 1; }));
+  // emberenként számol (név szerint), nem telefononként — különben aki két helyről húz, önmagával is matchelne
+  const likers = {};
+  swipes.forEach((s) => { const who = (s.name || "").trim().toLowerCase() || s.id; (s.likes || []).forEach((k) => { (likers[k] = likers[k] || new Set()).add(who); }); });
+  Object.keys(likers).forEach((k) => { likeCount[k] = likers[k].size; });
   const matchOpts = options.filter((o) => likeCount[o.key] >= 2 && !watchedKeys.has(o.key));
 
   // a TMDB-s közös kedvencekhez lekérjük, valójában hol nézhetők
@@ -2137,7 +2253,13 @@ function App() {
       },
       (err) => console.error("members", err)
     );
-    return unsub;
+    let last = Date.now();
+    const onVis = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 10 * 60 * 1000) return;
+      last = Date.now(); upsertMember(getName());
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { unsub(); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   const showToast = (msg, action) => {
@@ -2219,13 +2341,24 @@ function App() {
 
   const toggleShopping = (it) => {
     const nowDone = !it.done;
-    ops.update("shopping", it.id, { done: nowDone });
+    const key = (it.name || "").trim().toLowerCase();
+    const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
     if (nowDone) {
-      const key = (it.name || "").trim().toLowerCase();
-      const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
+      // megjegyzi, ki vette meg, és a készlet előző színét (ha visszaveszik a pipát, az is visszaáll)
+      const patch = { done: true, doneBy: getName() || null, invPrev: null };
       if (inv && inv.status !== "green") {
+        patch.invPrev = { id: inv.id, status: inv.status };
         ops.update("inventory", inv.id, { status: "green" });
         showToast("Készleten zöldre állítva: " + inv.name);
+      }
+      ops.update("shopping", it.id, patch);
+    } else {
+      ops.update("shopping", it.id, { done: false, doneBy: null, invPrev: null });
+      const prev = it.invPrev;
+      const back = prev && data.inventory.find((x) => x.id === prev.id);
+      if (back && back.status === "green" && (prev.status === "amber" || prev.status === "red")) {
+        ops.update("inventory", back.id, { status: prev.status });
+        showToast("Készlet visszaállítva: " + back.name);
       }
     }
   };
@@ -2319,7 +2452,7 @@ function App() {
           {cloud && (
             <div className="flex items-center gap-1.5 flex-none">
               <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} badge={namedMembers.length} />
-              <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />
+              {!IS_IOS && <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />}
               <IconBtn onClick={share} name="share" label="Megosztás" />
             </div>
           )}
@@ -2343,13 +2476,18 @@ function App() {
         {tab === "inventory" && (
           <InventoryView items={data.inventory} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
             onAdd={(d) => { ops.add("inventory", d); sendToShoppingFromStock(d); }}
-            onSave={(id, d) => { ops.update("inventory", id, d); sendToShoppingFromStock(d); }}
+            onSave={(id, d) => {
+              const prev = data.inventory.find((x) => x.id === id);
+              ops.update("inventory", id, d);
+              if (!prev || prev.status !== d.status) sendToShoppingFromStock(d);
+            }}
             onRemove={(id) => removeWithUndo("inventory", id)}
             onClear={clearInventory} />
         )}
         {tab === "debts" && (
-          <DebtsView items={data.debts}
+          <DebtsView items={data.debts} memberNames={memberNames}
             onAdd={(d) => ops.add("debts", d)}
+            onEdit={(id, d) => { ops.update("debts", id, d); showToast("Tartozás frissítve ✓"); }}
             onSettle={(id) => {
               ops.update("debts", id, { settled: true, settledAt: Date.now(), settledBy: getName() || null });
               showToast("Archívumba került ✓", { label: "Visszavon", fn: () => ops.update("debts", id, { settled: false, settledAt: null, settledBy: null }) });
@@ -2392,7 +2530,11 @@ function App() {
       )}
 
       {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onExport={exportBackup} onImport={importBackup} onClose={() => setNameOpen(false)} />}
-      {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => ops.catRemove(id)} onClose={() => setCatManagerOpen(false)} />}
+      {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => {
+        const c = cats.find((x) => x.id === id);
+        ops.catRemove(id);
+        if (c) showToast("Kategória törölve: " + c.name, { label: "Visszavon", fn: () => ops.catRestore([c]) });
+      }} onClose={() => setCatManagerOpen(false)} />}
 
       <nav className="fixed bottom-0 inset-x-0 z-20 border-t" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--ground) 88%, transparent)", backdropFilter: "blur(8px)" }}>
         <div className="mx-auto w-full max-w-[560px] grid grid-cols-4" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
