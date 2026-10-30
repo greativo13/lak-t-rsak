@@ -171,7 +171,7 @@ const getName = () => { try { return localStorage.getItem("lakotarsak.name") || 
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-10-28.2";
+const APP_VERSION = "2026-10-30.1";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -369,8 +369,10 @@ function useBackend() {
   const ops = {
     add(name, item) {
       const full = { ...item, createdAt: Date.now(), author: DEVICE, by: getName() };
-      if (cloud) roomCol(name).doc(uid()).set(full).catch(console.error);
-      else setData((p) => ({ ...p, [name]: [{ id: uid(), ...full }, ...p[name]] }));
+      const id = uid();
+      if (cloud) roomCol(name).doc(id).set(full).catch(console.error);
+      else setData((p) => ({ ...p, [name]: [{ id, ...full }, ...p[name]] }));
+      return id;
     },
     update(name, id, patch) {
       if (cloud) roomCol(name).doc(id).update(patch).catch(console.error);
@@ -2136,6 +2138,7 @@ function App() {
   const [myName, setMyName] = useState(getName());
   const [nameOpen, setNameOpen] = useState(false);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
+  const [checkPrompt, setCheckPrompt] = useState(null); // kipipált (nem raktárból jött) tétel: raktárba vagy törlés?
   const [members, setMembers] = useState([]);
   const toastTimer = useRef(null);
 
@@ -2246,7 +2249,29 @@ function App() {
     } catch (e) { console.error(e); showToast("Nem sikerült beolvasni a fájlt"); }
   };
 
+  // nem raktárból jött tétel kipipálásakor: raktárba (készletbe) vagy törlés a listáról
+  const shopToStock = (it) => {
+    setCheckPrompt(null);
+    const key = (it.name || "").trim().toLowerCase();
+    const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
+    let undoInv;
+    if (inv) {
+      const prev = inv.status;
+      if (prev !== "green") ops.update("inventory", inv.id, { status: "green" });
+      undoInv = () => { if (prev !== "green") ops.update("inventory", inv.id, { status: prev }); };
+    } else {
+      const newId = ops.add("inventory", { name: it.name, qty: it.qty || "", catId: it.catId || "", owner: it.owner || "", img: it.img || null, store: it.store || "", link: it.link || "", status: "green" });
+      undoInv = () => ops.remove("inventory", newId);
+    }
+    ops.remove("shopping", it.id);
+    showToast("Raktárba téve: " + it.name, { label: "Visszavon", fn: () => { undoInv(); ops.restore("shopping", [it]); } });
+  };
+  const shopDelete = (it) => {
+    setCheckPrompt(null);
+    removeWithUndo("shopping", it.id, "Törölve a listáról: " + it.name);
+  };
   const toggleShopping = (it) => {
+    if (!it.done && it.from !== "raktar") { setCheckPrompt(it); return; }
     const nowDone = !it.done;
     const key = (it.name || "").trim().toLowerCase();
     const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
@@ -2437,6 +2462,25 @@ function App() {
       )}
 
       {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onExport={exportBackup} onImport={importBackup} onClose={() => setNameOpen(false)} />}
+      {checkPrompt && (
+        <div className="overlay" onClick={() => setCheckPrompt(null)}>
+          <div className="card p-4 w-full" style={{ maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+            <p className="text-[12px] font-semibold" style={{ color: "var(--muted)" }}>Megvetted ✓</p>
+            <h3 className="font-display text-[20px] font-semibold leading-tight mt-0.5 mb-3" style={{ textWrap: "balance" }}>{checkPrompt.name}{checkPrompt.qty ? <span className="text-[14px] font-sans font-normal" style={{ color: "var(--muted)" }}> · {checkPrompt.qty}</span> : null}</h3>
+            <div className="space-y-2">
+              <button onClick={() => shopToStock(checkPrompt)} className="btn-accent w-full py-3 text-[15px] inline-flex items-center justify-center gap-2">
+                <Icon name="box" className="w-[18px] h-[18px]" /> Raktárba
+              </button>
+              <button onClick={() => shopDelete(checkPrompt)} className="w-full py-3 rounded-xl text-[15px] font-semibold inline-flex items-center justify-center gap-2 border" style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
+                <Icon name="trash" className="w-[18px] h-[18px]" /> Törlés a listáról
+              </button>
+              <button onClick={() => setCheckPrompt(null)} className="w-full py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+            </div>
+            <p className="text-[11px] mt-2.5" style={{ color: "var(--muted)" }}>Raktárba: a Készlet fülre kerül „van elég” (zöld) jelöléssel.</p>
+          </div>
+        </div>
+      )}
+
       {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => {
         const c = cats.find((x) => x.id === id);
         ops.catRemove(id);
