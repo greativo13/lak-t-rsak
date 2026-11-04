@@ -180,7 +180,7 @@ const getName = () => { try { return localStorage.getItem("lakotarsak.name") || 
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-11-04.2";
+const APP_VERSION = "2026-11-04.3";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -297,9 +297,9 @@ const SEED = {
   ],
 };
 // a közös kollekciók (feliratkozás + biztonsági mentés ugyanebből a listából)
-const DATA_COLS = ["shopping", "inventory", "debts", "boardgames", "watchlist", "watched"];
+const DATA_COLS = ["shopping", "inventory", "debts", "boardgames", "watchlist", "watched", "monthly"];
 function loadInitial() {
-  const base = cloud ? { shopping: [], inventory: [], debts: [], boardgames: [], watchlist: [], watched: [] } : { ...SEED, boardgames: [], watchlist: [], watched: [] };
+  const base = cloud ? { shopping: [], inventory: [], debts: [], boardgames: [], watchlist: [], watched: [], monthly: [] } : { ...SEED, boardgames: [], watchlist: [], watched: [], monthly: [] };
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return { ...base, categories: DEFAULT_CATEGORIES };
@@ -311,6 +311,7 @@ function loadInitial() {
       boardgames: Array.isArray(p.boardgames) ? p.boardgames : [],
       watchlist: Array.isArray(p.watchlist) ? p.watchlist : [],
       watched: Array.isArray(p.watched) ? p.watched : [],
+      monthly: Array.isArray(p.monthly) ? p.monthly : [],
       categories: Array.isArray(p.categories) && p.categories.length ? p.categories : DEFAULT_CATEGORIES,
     };
   } catch (e) { return { ...base, categories: DEFAULT_CATEGORIES }; }
@@ -488,6 +489,7 @@ function Icon({ name, className, style }) {
     dice: "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z M8.5 8.5h.01 M15.5 8.5h.01 M12 12h.01 M8.5 15.5h.01 M15.5 15.5h.01",
     heart: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z",
     refresh: "M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4 M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4",
+    calendar: "M7 3v3M17 3v3M4 9h16M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5Z M8.5 14.5l2 2 4-4",
     scan: "M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16",
   }[name];
   return (
@@ -2151,6 +2153,242 @@ function LeisureView(props) {
   );
 }
 
+/* ================= HAVI TEENDŐK ================= */
+// minden hónapban ismétlődő feladatok (lakbér, órák fotózása, internet…). A sablon egyszer van felvéve,
+// a pipák hónaponként külön tárolódnak: done = { "2026-11": { by, at, note, img } }
+const ymOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+const shiftYm = (ym, k) => { const [y, m] = ym.split("-").map(Number); return ymOf(new Date(y, m - 1 + k, 1)); };
+const ymLabel = (ym) => { const [y, m] = ym.split("-").map(Number); try { return new Date(y, m - 1, 1).toLocaleDateString("hu-HU", { year: "numeric", month: "long" }); } catch (e) { return ym; } };
+const MONTHLY_PRESETS = [
+  { name: "Lakbér utalás", dueDay: 10 },
+  { name: "Rezsi / közös költség", dueDay: 15 },
+  { name: "Internet befizetés", dueDay: 15 },
+  { name: "Órák fotózása (víz, gáz, villany)", dueDay: null },
+];
+// a mostani hónapban: hátralévő, esedékes (2 napon belül) és lejárt teendők
+function monthlySummary(tasks, now = new Date()) {
+  const ym = ymOf(now), today = now.getDate();
+  const open = (tasks || []).filter((t) => !(t.done && t.done[ym]));
+  const late = open.filter((t) => t.dueDay && today > t.dueDay);
+  const due = open.filter((t) => t.dueDay && today <= t.dueDay && t.dueDay - today <= 2);
+  return { open, late, due };
+}
+
+function MonthlyTaskForm({ initial, memberNames, onSave, onCancel, onRemove }) {
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [dueDay, setDueDay] = useState(initial && initial.dueDay ? String(initial.dueDay) : "");
+  const [assignee, setAssignee] = useState(initial ? (initial.assignee || "") : "");
+  const [note, setNote] = useState(initial ? (initial.note || "") : "");
+  const ref = useRef(null);
+  const busy = useRef(false);
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) { ref.current && ref.current.focus(); return; }
+    if (busy.current) return; busy.current = true;
+    const d = Math.min(31, Math.max(1, Number(dueDay) || 0));
+    onSave({ name: name.trim(), dueDay: dueDay ? d : null, assignee, note: note.trim() });
+  };
+  return (
+    <form onSubmit={submit} className="card p-3 space-y-2.5 pop" style={{ background: "var(--surface)" }}>
+      <input ref={ref} className="field" placeholder="Mi a teendő? (pl. Lakbér utalás)" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
+      <div className="flex items-center gap-2">
+        <input className="field tnum" style={{ width: 90 }} inputMode="numeric" placeholder="nap" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^\d]/g, "").slice(0, 2))} />
+        <span className="text-[13px]" style={{ color: "var(--muted)" }}>-ig minden hónapban (opcionális)</span>
+      </div>
+      <div>
+        <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Ki intézi?</p>
+        <OwnerPicker value={assignee} onChange={setAssignee} memberNames={memberNames} />
+      </div>
+      <input className="field" placeholder="Megjegyzés (pl. számlaszám, összeg) — opcionális" value={note} onChange={(e) => setNote(e.target.value)} />
+      <div className="flex gap-2">
+        <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">{initial ? "Mentés" : "Hozzáadás"}</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="w-full py-2 rounded-xl text-[13px] font-semibold" style={{ color: "var(--red)", background: "var(--red-bg)" }}>Teendő törlése (minden hónapból)</button>
+      )}
+    </form>
+  );
+}
+
+function MonthlyDoneDetails({ entry, onSave, onCancel }) {
+  const [note, setNote] = useState(entry.note || "");
+  const [img, setImg] = useState(entry.img || null);
+  return (
+    <div className="px-2 pb-2.5 pt-1 space-y-2">
+      <input className="field" placeholder="Megjegyzés (pl. óraállás, összeg)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <ImagePicker value={img} onChange={setImg} />
+      <div className="flex gap-2">
+        <button type="button" onClick={() => onSave({ ...entry, note: note.trim(), img })} className="btn-accent flex-1 py-2 text-[13px]">Mentés</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+      </div>
+    </div>
+  );
+}
+
+function MonthlySheet({ items, memberNames, onAdd, onUpdate, onRemove, onToast, onClose }) {
+  const nowYm = ymOf(new Date());
+  const [ym, setYm] = useState(nowYm);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [zoom, setZoom] = useState(null);
+  const today = new Date().getDate();
+  const isNow = ym === nowYm, isPast = ym < nowYm;
+  const setDone = (t, entry) => {
+    const prev = t.done || {};
+    const next = { ...prev };
+    if (entry) next[ym] = entry; else delete next[ym];
+    onUpdate(t.id, { done: next });
+    return () => onUpdate(t.id, { done: prev });
+  };
+  const toggle = (t) => {
+    const cur = t.done && t.done[ym];
+    const undo = setDone(t, cur ? null : { by: getName() || null, at: Date.now() });
+    onToast(cur ? "Visszavéve: " + t.name : "Kész ✓ " + t.name, { label: "Visszavon", fn: undo });
+  };
+  // régebbi hónapban csak azok a teendők látszanak, amik akkor már fel voltak véve
+  const sorted = (items || []).filter((t) => !t.createdAt || ymOf(new Date(t.createdAt)) <= ym).sort((a, b) => {
+    const da = !!(a.done && a.done[ym]), db = !!(b.done && b.done[ym]);
+    if (da !== db) return da ? 1 : -1;
+    return (a.dueDay || 99) - (b.dueDay || 99) || (a.name || "").localeCompare(b.name || "", "hu");
+  });
+  const doneCount = sorted.filter((t) => t.done && t.done[ym]).length;
+  const existing = new Set((items || []).map((t) => (t.name || "").trim().toLowerCase()));
+  const presets = MONTHLY_PRESETS.filter((p) => !existing.has(p.name.toLowerCase()));
+
+  const statusOf = (t) => {
+    if (t.done && t.done[ym]) return null;
+    if (isPast) return { text: "kimaradt", color: "var(--red)", bg: "var(--red-bg)" };
+    if (!isNow || !t.dueDay) return null;
+    if (today > t.dueDay) return { text: "lejárt", color: "var(--red)", bg: "var(--red-bg)" };
+    if (t.dueDay - today <= 2) return { text: today === t.dueDay ? "ma" : "hamarosan", color: "var(--amber)", bg: "var(--amber-bg)" };
+    return null;
+  };
+
+  return (
+    <div className="overlay" onClick={onClose} style={{ placeItems: "start center", paddingTop: "max(16px, env(safe-area-inset-top))" }}>
+      <div className="card p-4 w-full" style={{ maxWidth: 480, maxHeight: "calc(100vh - 32px)", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <h3 className="font-display text-[22px] font-semibold">Havi teendők</h3>
+          <button onClick={onClose} className="icon-btn" aria-label="Bezárás"><Icon name="x" className="w-5 h-5" /></button>
+        </div>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button onClick={() => { setYm(shiftYm(ym, -1)); setDetailId(null); }} className="icon-btn" aria-label="Előző hónap"><Icon name="chevron" className="w-5 h-5" style={{ transform: "rotate(90deg)" }} /></button>
+          <div className="text-center">
+            <p className="text-[15px] font-semibold">{ymLabel(ym)}</p>
+            <p className="text-[12px] tnum" style={{ color: "var(--muted)" }}>{sorted.length ? `${doneCount} / ${sorted.length} kész` : ""}{!isNow ? (sorted.length ? " · " : "") : ""}{!isNow && <button onClick={() => setYm(nowYm)} className="font-semibold" style={{ color: "var(--accent)" }}>vissza a mostanira</button>}</p>
+          </div>
+          <button onClick={() => { setYm(shiftYm(ym, 1)); setDetailId(null); }} className="icon-btn" aria-label="Következő hónap"><Icon name="chevron" className="w-5 h-5" style={{ transform: "rotate(-90deg)" }} /></button>
+        </div>
+
+        {sorted.length === 0 && !adding && (items || []).length > 0 && (
+          <div className="rounded-xl p-3 mb-3 text-[13px]" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Ebben a hónapban még nem volt felvett teendő.</div>
+        )}
+        {(items || []).length === 0 && !adding && (
+          <div className="rounded-xl p-3 mb-3 text-[13px]" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+            Még nincs havi teendő. Ami minden hónapban ismétlődik, azt vedd fel egyszer, és minden hónapban újra kipipálható lesz.
+          </div>
+        )}
+
+        <ul className="space-y-1.5">
+          {sorted.map((t) => {
+            if (editId === t.id) return (
+              <li key={t.id}>
+                <MonthlyTaskForm initial={t} memberNames={memberNames}
+                  onSave={(d) => { onUpdate(t.id, d); setEditId(null); }} onCancel={() => setEditId(null)}
+                  onRemove={() => { setEditId(null); onRemove(t.id); }} />
+              </li>
+            );
+            const entry = t.done && t.done[ym];
+            const st = statusOf(t);
+            return (
+              <li key={t.id} className="card overflow-hidden" style={entry ? { background: "var(--surface-2)", boxShadow: "none" } : null}>
+                <div className="p-2 flex items-center gap-2">
+                  <button className="checkbox checkbox-lg" data-on={!!entry} onClick={() => toggle(t)} aria-label={entry ? "Visszavétel" : "Kész"}>
+                    {entry && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={"font-semibold text-[15px] leading-tight " + (entry ? "line-through" : "")} style={{ color: entry ? "var(--muted)" : "var(--ink)" }}>{t.name}</p>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[12px]" style={{ color: "var(--muted)" }}>
+                      {st && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: st.bg, color: st.color }}>{st.text}</span>}
+                      {entry ? (
+                        <span className="tnum">✓ {[entry.by, new Date(entry.at).toLocaleDateString("hu-HU", { month: "short", day: "numeric" })].filter(Boolean).join(" · ")}{entry.note ? " · " + entry.note : ""}</span>
+                      ) : (
+                        <React.Fragment>
+                          {t.dueDay ? <span className="tnum">{t.dueDay}-ig</span> : null}
+                          {t.assignee ? <span className="inline-flex items-center gap-0.5"><Icon name="person" className="w-3 h-3" /> {t.assignee}</span> : null}
+                          {t.note ? <span className="truncate" style={{ maxWidth: 180 }}>{t.note}</span> : null}
+                        </React.Fragment>
+                      )}
+                    </div>
+                  </div>
+                  {entry && entry.img && (
+                    <button onClick={() => setZoom(entry.img)} className="flex-none" aria-label="Fotó megnyitása"><img src={entry.img} alt="" className="w-9 h-9 rounded-lg object-cover" /></button>
+                  )}
+                  {entry ? (
+                    <button onClick={() => setDetailId(detailId === t.id ? null : t.id)} className="icon-btn" aria-label="Fotó, megjegyzés"><Icon name="camera" className="w-[19px] h-[19px]" /></button>
+                  ) : (
+                    <button onClick={() => { setEditId(t.id); setAdding(false); }} className="icon-btn" aria-label="Szerkesztés"><Icon name="edit" className="w-[19px] h-[19px]" /></button>
+                  )}
+                </div>
+                {entry && detailId === t.id && (
+                  <MonthlyDoneDetails entry={entry} onCancel={() => setDetailId(null)}
+                    onSave={(e2) => { setDone(t, e2); setDetailId(null); onToast("Mentve ✓"); }} />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        {adding ? (
+          <div className="mt-3">
+            <MonthlyTaskForm memberNames={memberNames} onSave={(d) => { onAdd({ ...d, done: {} }); setAdding(false); }} onCancel={() => setAdding(false)} />
+          </div>
+        ) : (
+          <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-accent w-full py-2.5 text-[14px] mt-3 inline-flex items-center justify-center gap-1.5">
+            <Icon name="plus" className="w-[18px] h-[18px]" /> Új havi teendő
+          </button>
+        )}
+        {presets.length > 0 && !adding && (
+          <div className="mt-3">
+            <p className="text-[12px] font-semibold mb-1.5" style={{ color: "var(--muted)" }}>Gyors felvétel:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <Chip key={p.name} on={false} onClick={() => { onAdd({ name: p.name, dueDay: p.dueDay, assignee: "", note: "", done: {} }); onToast("Felvéve: " + p.name); }}>＋ {p.name}{p.dueDay ? ` (${p.dueDay}-ig)` : ""}</Chip>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="text-[11px] mt-3" style={{ color: "var(--muted)" }}>Pipálás után a 📷 gombbal fotó és megjegyzés (pl. óraállás) csatolható. A ‹ › nyilakkal a korábbi hónapok is visszanézhetők.</p>
+      </div>
+      {zoom && (
+        <div className="overlay" style={{ zIndex: 80 }} onClick={(e) => { e.stopPropagation(); setZoom(null); }}>
+          <img src={zoom} alt="" style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 12 }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthlyBanner({ tasks, onOpen }) {
+  const { late, due } = monthlySummary(tasks);
+  const list = [...late, ...due];
+  if (!list.length) return null;
+  const urgent = late.length > 0;
+  return (
+    <button onClick={onOpen} className="w-full mb-4 px-3 py-2.5 rounded-xl text-left flex items-center gap-2.5 border pop"
+      style={{ background: urgent ? "var(--red-bg)" : "var(--amber-bg)", borderColor: urgent ? "var(--red-line)" : "var(--amber-line)", color: urgent ? "var(--red)" : "var(--amber)" }}>
+      <Icon name="calendar" className="w-5 h-5 flex-none" />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[13px] font-bold">{urgent ? "Lejárt havi teendő" : "Esedékes havi teendő"}</span>
+        <span className="block text-[12px] truncate" style={{ color: "var(--ink)" }}>{list.map((t) => t.name + (t.dueDay ? ` (${t.dueDay}-ig)` : "")).join(", ")}</span>
+      </span>
+      <Icon name="chevron" className="w-4 h-4 flex-none" style={{ transform: "rotate(-90deg)" }} />
+    </button>
+  );
+}
+
 /* ================= APP ================= */
 const TABS = [
   { key: "shopping", label: "Bevásárlás", icon: "cart" },
@@ -2245,6 +2483,7 @@ function App() {
   const [myName, setMyName] = useState(getName());
   const [nameOpen, setNameOpen] = useState(false);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
+  const [monthlyOpen, setMonthlyOpen] = useState(false);
   const [checkPrompt, setCheckPrompt] = useState(null); // kipipált (nem raktárból jött) tétel: raktárba vagy törlés?
   const [members, setMembers] = useState([]);
   const toastTimer = useRef(null);
@@ -2465,17 +2704,17 @@ function App() {
               )}
             </div>
           </div>
-          {cloud && (
-            <div className="flex items-center gap-1.5 flex-none">
-              <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} />
-              {!IS_IOS && <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />}
-              <IconBtn onClick={share} name="share" label="Megosztás" />
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 flex-none">
+            <IconBtn onClick={() => setMonthlyOpen(true)} name="calendar" label="Havi teendők" active={monthlySummary(data.monthly).open.length > 0} badge={monthlySummary(data.monthly).open.length} />
+            {cloud && <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} />}
+            {cloud && !IS_IOS && <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />}
+            {cloud && <IconBtn onClick={share} name="share" label="Megosztás" />}
+          </div>
         </div>
       </header>
 
       <main className="flex-1 mx-auto w-full max-w-[560px] px-4 pt-5 pb-28">
+        {tab === "shopping" && <MonthlyBanner tasks={data.monthly} onOpen={() => setMonthlyOpen(true)} />}
         {tab === "shopping" && (
           <ShoppingView items={data.shopping} suggestPool={data.inventory} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
             onAdd={(it) => ops.add("shopping", it)}
@@ -2544,6 +2783,9 @@ function App() {
       )}
 
       {nameOpen && <NameModal initial={myName} members={namedMembers} onSave={saveName} onRenameMember={renameMember} onRemoveMember={removeMember} onExport={exportBackup} onImport={importBackup} onClose={() => setNameOpen(false)} />}
+      {monthlyOpen && <MonthlySheet items={data.monthly || []} memberNames={memberNames} onToast={showToast} onClose={() => setMonthlyOpen(false)}
+        onAdd={(d) => ops.add("monthly", d)} onUpdate={(id, d) => ops.update("monthly", id, d)}
+        onRemove={(id) => removeWithUndo("monthly", id, "Havi teendő törölve")} />}
       {checkPrompt && <ShopDoneModal item={checkPrompt} memberNames={memberNames} onConfirm={(opt) => shopDone(checkPrompt, opt)} onClose={() => setCheckPrompt(null)} />}
 
       {catManagerOpen && <CategoryManager categories={cats} onAdd={(c) => ops.catAdd(c)} onUpdate={(id, p) => ops.catUpdate(id, p)} onRemove={(id) => {

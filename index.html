@@ -408,6 +408,9 @@
 .justify-between {
     justify-content: space-between
 }
+.gap-0\.5 {
+    gap: 0.125rem
+}
 .gap-1 {
     gap: 0.25rem
 }
@@ -558,6 +561,9 @@
     padding-top: 0.75rem;
     padding-bottom: 0.75rem
 }
+.pb-2\.5 {
+    padding-bottom: 0.625rem
+}
 .pb-28 {
     padding-bottom: 7rem
 }
@@ -584,6 +590,9 @@
 }
 .pt-5 {
     padding-top: 1.25rem
+}
+.text-left {
+    text-align: left
 }
 .text-center {
     text-align: center
@@ -766,7 +775,7 @@ const getName = () => {
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-11-04.2";
+const APP_VERSION = "2026-11-04.3";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), {
@@ -1011,7 +1020,7 @@ const SEED = {
   }]
 };
 // a közös kollekciók (feliratkozás + biztonsági mentés ugyanebből a listából)
-const DATA_COLS = ["shopping", "inventory", "debts", "boardgames", "watchlist", "watched"];
+const DATA_COLS = ["shopping", "inventory", "debts", "boardgames", "watchlist", "watched", "monthly"];
 function loadInitial() {
   const base = cloud ? {
     shopping: [],
@@ -1019,12 +1028,14 @@ function loadInitial() {
     debts: [],
     boardgames: [],
     watchlist: [],
-    watched: []
+    watched: [],
+    monthly: []
   } : {
     ...SEED,
     boardgames: [],
     watchlist: [],
-    watched: []
+    watched: [],
+    monthly: []
   };
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -1040,6 +1051,7 @@ function loadInitial() {
       boardgames: Array.isArray(p.boardgames) ? p.boardgames : [],
       watchlist: Array.isArray(p.watchlist) ? p.watchlist : [],
       watched: Array.isArray(p.watched) ? p.watched : [],
+      monthly: Array.isArray(p.monthly) ? p.monthly : [],
       categories: Array.isArray(p.categories) && p.categories.length ? p.categories : DEFAULT_CATEGORIES
     };
   } catch (e) {
@@ -1304,6 +1316,7 @@ function Icon({
     dice: "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z M8.5 8.5h.01 M15.5 8.5h.01 M12 12h.01 M8.5 15.5h.01 M15.5 15.5h.01",
     heart: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z",
     refresh: "M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4 M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4",
+    calendar: "M7 3v3M17 3v3M4 9h16M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5Z M8.5 14.5l2 2 4-4",
     scan: "M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16"
   }[name];
   return /*#__PURE__*/React.createElement("svg", {
@@ -5071,6 +5084,552 @@ function LeisureView(props) {
   }));
 }
 
+/* ================= HAVI TEENDŐK ================= */
+// minden hónapban ismétlődő feladatok (lakbér, órák fotózása, internet…). A sablon egyszer van felvéve,
+// a pipák hónaponként külön tárolódnak: done = { "2026-11": { by, at, note, img } }
+const ymOf = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+const shiftYm = (ym, k) => {
+  const [y, m] = ym.split("-").map(Number);
+  return ymOf(new Date(y, m - 1 + k, 1));
+};
+const ymLabel = ym => {
+  const [y, m] = ym.split("-").map(Number);
+  try {
+    return new Date(y, m - 1, 1).toLocaleDateString("hu-HU", {
+      year: "numeric",
+      month: "long"
+    });
+  } catch (e) {
+    return ym;
+  }
+};
+const MONTHLY_PRESETS = [{
+  name: "Lakbér utalás",
+  dueDay: 10
+}, {
+  name: "Rezsi / közös költség",
+  dueDay: 15
+}, {
+  name: "Internet befizetés",
+  dueDay: 15
+}, {
+  name: "Órák fotózása (víz, gáz, villany)",
+  dueDay: null
+}];
+// a mostani hónapban: hátralévő, esedékes (2 napon belül) és lejárt teendők
+function monthlySummary(tasks, now = new Date()) {
+  const ym = ymOf(now),
+    today = now.getDate();
+  const open = (tasks || []).filter(t => !(t.done && t.done[ym]));
+  const late = open.filter(t => t.dueDay && today > t.dueDay);
+  const due = open.filter(t => t.dueDay && today <= t.dueDay && t.dueDay - today <= 2);
+  return {
+    open,
+    late,
+    due
+  };
+}
+function MonthlyTaskForm({
+  initial,
+  memberNames,
+  onSave,
+  onCancel,
+  onRemove
+}) {
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [dueDay, setDueDay] = useState(initial && initial.dueDay ? String(initial.dueDay) : "");
+  const [assignee, setAssignee] = useState(initial ? initial.assignee || "" : "");
+  const [note, setNote] = useState(initial ? initial.note || "" : "");
+  const ref = useRef(null);
+  const busy = useRef(false);
+  const submit = e => {
+    e.preventDefault();
+    if (!name.trim()) {
+      ref.current && ref.current.focus();
+      return;
+    }
+    if (busy.current) return;
+    busy.current = true;
+    const d = Math.min(31, Math.max(1, Number(dueDay) || 0));
+    onSave({
+      name: name.trim(),
+      dueDay: dueDay ? d : null,
+      assignee,
+      note: note.trim()
+    });
+  };
+  return /*#__PURE__*/React.createElement("form", {
+    onSubmit: submit,
+    className: "card p-3 space-y-2.5 pop",
+    style: {
+      background: "var(--surface)"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    ref: ref,
+    className: "field",
+    placeholder: "Mi a teend\u0151? (pl. Lakb\xE9r utal\xE1s)",
+    value: name,
+    maxLength: 60,
+    onChange: e => setName(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field tnum",
+    style: {
+      width: 90
+    },
+    inputMode: "numeric",
+    placeholder: "nap",
+    value: dueDay,
+    onChange: e => setDueDay(e.target.value.replace(/[^\d]/g, "").slice(0, 2))
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "text-[13px]",
+    style: {
+      color: "var(--muted)"
+    }
+  }, "-ig minden h\xF3napban (opcion\xE1lis)")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    className: "text-[12px] font-semibold mb-1.5",
+    style: {
+      color: "var(--muted)"
+    }
+  }, "Ki int\xE9zi?"), /*#__PURE__*/React.createElement(OwnerPicker, {
+    value: assignee,
+    onChange: setAssignee,
+    memberNames: memberNames
+  })), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    placeholder: "Megjegyz\xE9s (pl. sz\xE1mlasz\xE1m, \xF6sszeg) \u2014 opcion\xE1lis",
+    value: note,
+    onChange: e => setNote(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn-accent flex-1 py-2.5 text-[14px]"
+  }, initial ? "Mentés" : "Hozzáadás"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onCancel,
+    className: "px-4 py-2.5 rounded-xl text-[14px] font-semibold",
+    style: {
+      background: "var(--surface-2)",
+      color: "var(--muted)"
+    }
+  }, "M\xE9gse")), onRemove && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onRemove,
+    className: "w-full py-2 rounded-xl text-[13px] font-semibold",
+    style: {
+      color: "var(--red)",
+      background: "var(--red-bg)"
+    }
+  }, "Teend\u0151 t\xF6rl\xE9se (minden h\xF3napb\xF3l)"));
+}
+function MonthlyDoneDetails({
+  entry,
+  onSave,
+  onCancel
+}) {
+  const [note, setNote] = useState(entry.note || "");
+  const [img, setImg] = useState(entry.img || null);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "px-2 pb-2.5 pt-1 space-y-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    placeholder: "Megjegyz\xE9s (pl. \xF3ra\xE1ll\xE1s, \xF6sszeg)",
+    value: note,
+    onChange: e => setNote(e.target.value)
+  }), /*#__PURE__*/React.createElement(ImagePicker, {
+    value: img,
+    onChange: setImg
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => onSave({
+      ...entry,
+      note: note.trim(),
+      img
+    }),
+    className: "btn-accent flex-1 py-2 text-[13px]"
+  }, "Ment\xE9s"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onCancel,
+    className: "px-4 py-2 rounded-xl text-[13px] font-semibold",
+    style: {
+      background: "var(--surface-2)",
+      color: "var(--muted)"
+    }
+  }, "M\xE9gse")));
+}
+function MonthlySheet({
+  items,
+  memberNames,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onToast,
+  onClose
+}) {
+  const nowYm = ymOf(new Date());
+  const [ym, setYm] = useState(nowYm);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [zoom, setZoom] = useState(null);
+  const today = new Date().getDate();
+  const isNow = ym === nowYm,
+    isPast = ym < nowYm;
+  const setDone = (t, entry) => {
+    const prev = t.done || {};
+    const next = {
+      ...prev
+    };
+    if (entry) next[ym] = entry;else delete next[ym];
+    onUpdate(t.id, {
+      done: next
+    });
+    return () => onUpdate(t.id, {
+      done: prev
+    });
+  };
+  const toggle = t => {
+    const cur = t.done && t.done[ym];
+    const undo = setDone(t, cur ? null : {
+      by: getName() || null,
+      at: Date.now()
+    });
+    onToast(cur ? "Visszavéve: " + t.name : "Kész ✓ " + t.name, {
+      label: "Visszavon",
+      fn: undo
+    });
+  };
+  // régebbi hónapban csak azok a teendők látszanak, amik akkor már fel voltak véve
+  const sorted = (items || []).filter(t => !t.createdAt || ymOf(new Date(t.createdAt)) <= ym).sort((a, b) => {
+    const da = !!(a.done && a.done[ym]),
+      db = !!(b.done && b.done[ym]);
+    if (da !== db) return da ? 1 : -1;
+    return (a.dueDay || 99) - (b.dueDay || 99) || (a.name || "").localeCompare(b.name || "", "hu");
+  });
+  const doneCount = sorted.filter(t => t.done && t.done[ym]).length;
+  const existing = new Set((items || []).map(t => (t.name || "").trim().toLowerCase()));
+  const presets = MONTHLY_PRESETS.filter(p => !existing.has(p.name.toLowerCase()));
+  const statusOf = t => {
+    if (t.done && t.done[ym]) return null;
+    if (isPast) return {
+      text: "kimaradt",
+      color: "var(--red)",
+      bg: "var(--red-bg)"
+    };
+    if (!isNow || !t.dueDay) return null;
+    if (today > t.dueDay) return {
+      text: "lejárt",
+      color: "var(--red)",
+      bg: "var(--red-bg)"
+    };
+    if (t.dueDay - today <= 2) return {
+      text: today === t.dueDay ? "ma" : "hamarosan",
+      color: "var(--amber)",
+      bg: "var(--amber-bg)"
+    };
+    return null;
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "overlay",
+    onClick: onClose,
+    style: {
+      placeItems: "start center",
+      paddingTop: "max(16px, env(safe-area-inset-top))"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card p-4 w-full",
+    style: {
+      maxWidth: 480,
+      maxHeight: "calc(100vh - 32px)",
+      overflow: "auto"
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2 mb-1"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "font-display text-[22px] font-semibold"
+  }, "Havi teend\u0151k"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "icon-btn",
+    "aria-label": "Bez\xE1r\xE1s"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    className: "w-5 h-5"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2 mb-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setYm(shiftYm(ym, -1));
+      setDetailId(null);
+    },
+    className: "icon-btn",
+    "aria-label": "El\u0151z\u0151 h\xF3nap"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron",
+    className: "w-5 h-5",
+    style: {
+      transform: "rotate(90deg)"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-center"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-[15px] font-semibold"
+  }, ymLabel(ym)), /*#__PURE__*/React.createElement("p", {
+    className: "text-[12px] tnum",
+    style: {
+      color: "var(--muted)"
+    }
+  }, sorted.length ? `${doneCount} / ${sorted.length} kész` : "", !isNow ? sorted.length ? " · " : "" : "", !isNow && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setYm(nowYm),
+    className: "font-semibold",
+    style: {
+      color: "var(--accent)"
+    }
+  }, "vissza a mostanira"))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setYm(shiftYm(ym, 1));
+      setDetailId(null);
+    },
+    className: "icon-btn",
+    "aria-label": "K\xF6vetkez\u0151 h\xF3nap"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron",
+    className: "w-5 h-5",
+    style: {
+      transform: "rotate(-90deg)"
+    }
+  }))), sorted.length === 0 && !adding && (items || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 mb-3 text-[13px]",
+    style: {
+      background: "var(--surface-2)",
+      color: "var(--muted)"
+    }
+  }, "Ebben a h\xF3napban m\xE9g nem volt felvett teend\u0151."), (items || []).length === 0 && !adding && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 mb-3 text-[13px]",
+    style: {
+      background: "var(--surface-2)",
+      color: "var(--muted)"
+    }
+  }, "M\xE9g nincs havi teend\u0151. Ami minden h\xF3napban ism\xE9tl\u0151dik, azt vedd fel egyszer, \xE9s minden h\xF3napban \xFAjra kipip\xE1lhat\xF3 lesz."), /*#__PURE__*/React.createElement("ul", {
+    className: "space-y-1.5"
+  }, sorted.map(t => {
+    if (editId === t.id) return /*#__PURE__*/React.createElement("li", {
+      key: t.id
+    }, /*#__PURE__*/React.createElement(MonthlyTaskForm, {
+      initial: t,
+      memberNames: memberNames,
+      onSave: d => {
+        onUpdate(t.id, d);
+        setEditId(null);
+      },
+      onCancel: () => setEditId(null),
+      onRemove: () => {
+        setEditId(null);
+        onRemove(t.id);
+      }
+    }));
+    const entry = t.done && t.done[ym];
+    const st = statusOf(t);
+    return /*#__PURE__*/React.createElement("li", {
+      key: t.id,
+      className: "card overflow-hidden",
+      style: entry ? {
+        background: "var(--surface-2)",
+        boxShadow: "none"
+      } : null
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "p-2 flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "checkbox checkbox-lg",
+      "data-on": !!entry,
+      onClick: () => toggle(t),
+      "aria-label": entry ? "Visszavétel" : "Kész"
+    }, entry && /*#__PURE__*/React.createElement(Icon, {
+      name: "check",
+      className: "w-4 h-4",
+      style: {
+        color: "var(--accent-ink)"
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 min-w-0"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "font-semibold text-[15px] leading-tight " + (entry ? "line-through" : ""),
+      style: {
+        color: entry ? "var(--muted)" : "var(--ink)"
+      }
+    }, t.name), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-1.5 mt-1 flex-wrap text-[12px]",
+      style: {
+        color: "var(--muted)"
+      }
+    }, st && /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+      style: {
+        background: st.bg,
+        color: st.color
+      }
+    }, st.text), entry ? /*#__PURE__*/React.createElement("span", {
+      className: "tnum"
+    }, "\u2713 ", [entry.by, new Date(entry.at).toLocaleDateString("hu-HU", {
+      month: "short",
+      day: "numeric"
+    })].filter(Boolean).join(" · "), entry.note ? " · " + entry.note : "") : /*#__PURE__*/React.createElement(React.Fragment, null, t.dueDay ? /*#__PURE__*/React.createElement("span", {
+      className: "tnum"
+    }, t.dueDay, "-ig") : null, t.assignee ? /*#__PURE__*/React.createElement("span", {
+      className: "inline-flex items-center gap-0.5"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "person",
+      className: "w-3 h-3"
+    }), " ", t.assignee) : null, t.note ? /*#__PURE__*/React.createElement("span", {
+      className: "truncate",
+      style: {
+        maxWidth: 180
+      }
+    }, t.note) : null))), entry && entry.img && /*#__PURE__*/React.createElement("button", {
+      onClick: () => setZoom(entry.img),
+      className: "flex-none",
+      "aria-label": "Fot\xF3 megnyit\xE1sa"
+    }, /*#__PURE__*/React.createElement("img", {
+      src: entry.img,
+      alt: "",
+      className: "w-9 h-9 rounded-lg object-cover"
+    })), entry ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => setDetailId(detailId === t.id ? null : t.id),
+      className: "icon-btn",
+      "aria-label": "Fot\xF3, megjegyz\xE9s"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "camera",
+      className: "w-[19px] h-[19px]"
+    })) : /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setEditId(t.id);
+        setAdding(false);
+      },
+      className: "icon-btn",
+      "aria-label": "Szerkeszt\xE9s"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "edit",
+      className: "w-[19px] h-[19px]"
+    }))), entry && detailId === t.id && /*#__PURE__*/React.createElement(MonthlyDoneDetails, {
+      entry: entry,
+      onCancel: () => setDetailId(null),
+      onSave: e2 => {
+        setDone(t, e2);
+        setDetailId(null);
+        onToast("Mentve ✓");
+      }
+    }));
+  })), adding ? /*#__PURE__*/React.createElement("div", {
+    className: "mt-3"
+  }, /*#__PURE__*/React.createElement(MonthlyTaskForm, {
+    memberNames: memberNames,
+    onSave: d => {
+      onAdd({
+        ...d,
+        done: {}
+      });
+      setAdding(false);
+    },
+    onCancel: () => setAdding(false)
+  })) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setAdding(true);
+      setEditId(null);
+    },
+    className: "btn-accent w-full py-2.5 text-[14px] mt-3 inline-flex items-center justify-center gap-1.5"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    className: "w-[18px] h-[18px]"
+  }), " \xDAj havi teend\u0151"), presets.length > 0 && !adding && /*#__PURE__*/React.createElement("div", {
+    className: "mt-3"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-[12px] font-semibold mb-1.5",
+    style: {
+      color: "var(--muted)"
+    }
+  }, "Gyors felv\xE9tel:"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, presets.map(p => /*#__PURE__*/React.createElement(Chip, {
+    key: p.name,
+    on: false,
+    onClick: () => {
+      onAdd({
+        name: p.name,
+        dueDay: p.dueDay,
+        assignee: "",
+        note: "",
+        done: {}
+      });
+      onToast("Felvéve: " + p.name);
+    }
+  }, "\uFF0B ", p.name, p.dueDay ? ` (${p.dueDay}-ig)` : "")))), /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] mt-3",
+    style: {
+      color: "var(--muted)"
+    }
+  }, "Pip\xE1l\xE1s ut\xE1n a \uD83D\uDCF7 gombbal fot\xF3 \xE9s megjegyz\xE9s (pl. \xF3ra\xE1ll\xE1s) csatolhat\xF3. A \u2039 \u203A nyilakkal a kor\xE1bbi h\xF3napok is visszan\xE9zhet\u0151k.")), zoom && /*#__PURE__*/React.createElement("div", {
+    className: "overlay",
+    style: {
+      zIndex: 80
+    },
+    onClick: e => {
+      e.stopPropagation();
+      setZoom(null);
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: zoom,
+    alt: "",
+    style: {
+      maxWidth: "100%",
+      maxHeight: "90vh",
+      borderRadius: 12
+    }
+  })));
+}
+function MonthlyBanner({
+  tasks,
+  onOpen
+}) {
+  const {
+    late,
+    due
+  } = monthlySummary(tasks);
+  const list = [...late, ...due];
+  if (!list.length) return null;
+  const urgent = late.length > 0;
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: onOpen,
+    className: "w-full mb-4 px-3 py-2.5 rounded-xl text-left flex items-center gap-2.5 border pop",
+    style: {
+      background: urgent ? "var(--red-bg)" : "var(--amber-bg)",
+      borderColor: urgent ? "var(--red-line)" : "var(--amber-line)",
+      color: urgent ? "var(--red)" : "var(--amber)"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar",
+    className: "w-5 h-5 flex-none"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "block text-[13px] font-bold"
+  }, urgent ? "Lejárt havi teendő" : "Esedékes havi teendő"), /*#__PURE__*/React.createElement("span", {
+    className: "block text-[12px] truncate",
+    style: {
+      color: "var(--ink)"
+    }
+  }, list.map(t => t.name + (t.dueDay ? ` (${t.dueDay}-ig)` : "")).join(", "))), /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron",
+    className: "w-4 h-4 flex-none",
+    style: {
+      transform: "rotate(-90deg)"
+    }
+  }));
+}
+
 /* ================= APP ================= */
 const TABS = [{
   key: "shopping",
@@ -5276,6 +5835,7 @@ function App() {
   const [myName, setMyName] = useState(getName());
   const [nameOpen, setNameOpen] = useState(false);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
+  const [monthlyOpen, setMonthlyOpen] = useState(false);
   const [checkPrompt, setCheckPrompt] = useState(null); // kipipált (nem raktárból jött) tétel: raktárba vagy törlés?
   const [members, setMembers] = useState([]);
   const toastTimer = useRef(null);
@@ -5638,25 +6198,34 @@ function App() {
     }
   }, "Add meg a neved \u2192") : /*#__PURE__*/React.createElement("span", {
     className: "truncate"
-  }, cloud ? myName + " · szinkronban" : "Csak ezen az eszközön"))), cloud && /*#__PURE__*/React.createElement("div", {
+  }, cloud ? myName + " · szinkronban" : "Csak ezen az eszközön"))), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-1.5 flex-none"
   }, /*#__PURE__*/React.createElement(IconBtn, {
+    onClick: () => setMonthlyOpen(true),
+    name: "calendar",
+    label: "Havi teend\u0151k",
+    active: monthlySummary(data.monthly).open.length > 0,
+    badge: monthlySummary(data.monthly).open.length
+  }), cloud && /*#__PURE__*/React.createElement(IconBtn, {
     onClick: () => setNameOpen(true),
     name: "person",
     label: "Neved \xE9s lak\xF3t\xE1rsak",
     active: !!myName
-  }), !IS_IOS && /*#__PURE__*/React.createElement(IconBtn, {
+  }), cloud && !IS_IOS && /*#__PURE__*/React.createElement(IconBtn, {
     onClick: enableNotif,
     name: "bell",
     label: "\xC9rtes\xEDt\xE9sek bekapcsol\xE1sa",
     active: notif === "granted"
-  }), /*#__PURE__*/React.createElement(IconBtn, {
+  }), cloud && /*#__PURE__*/React.createElement(IconBtn, {
     onClick: share,
     name: "share",
     label: "Megoszt\xE1s"
   })))), /*#__PURE__*/React.createElement("main", {
     className: "flex-1 mx-auto w-full max-w-[560px] px-4 pt-5 pb-28"
-  }, tab === "shopping" && /*#__PURE__*/React.createElement(ShoppingView, {
+  }, tab === "shopping" && /*#__PURE__*/React.createElement(MonthlyBanner, {
+    tasks: data.monthly,
+    onOpen: () => setMonthlyOpen(true)
+  }), tab === "shopping" && /*#__PURE__*/React.createElement(ShoppingView, {
     items: data.shopping,
     suggestPool: data.inventory,
     cats: cats,
@@ -5779,6 +6348,14 @@ function App() {
     onExport: exportBackup,
     onImport: importBackup,
     onClose: () => setNameOpen(false)
+  }), monthlyOpen && /*#__PURE__*/React.createElement(MonthlySheet, {
+    items: data.monthly || [],
+    memberNames: memberNames,
+    onToast: showToast,
+    onClose: () => setMonthlyOpen(false),
+    onAdd: d => ops.add("monthly", d),
+    onUpdate: (id, d) => ops.update("monthly", id, d),
+    onRemove: id => removeWithUndo("monthly", id, "Havi teendő törölve")
   }), checkPrompt && /*#__PURE__*/React.createElement(ShopDoneModal, {
     item: checkPrompt,
     memberNames: memberNames,
