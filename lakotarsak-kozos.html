@@ -104,6 +104,9 @@
 
   .checkbox { width:26px; height:26px; flex:none; border-radius:8px; border:2px solid var(--line); background:var(--surface); display:grid; place-items:center; transition:background .15s, border-color .15s; }
   .checkbox[data-on="true"] { background:var(--accent); border-color:var(--accent); }
+  .checkbox-lg { width:30px; height:30px; }
+  .icon-btn { width:38px; height:38px; flex:none; display:grid; place-items:center; border-radius:10px; color:var(--muted); }
+  .icon-btn:active { background:var(--surface-2); }
 
   .row-leave { animation: rowLeave .5s ease forwards; }
   @keyframes rowLeave { 0%{opacity:1} 35%{opacity:.35} 100%{opacity:0; transform:translateX(14px); height:0; margin:0; padding-top:0; padding-bottom:0} }
@@ -152,6 +155,12 @@
     const ml = document.createElement("link"); ml.rel = "manifest";
     ml.href = URL.createObjectURL(blob); document.head.appendChild(ml);
   } catch (e) {}
+  // offline indulás (sw.js): térerő nélkül is megnyílik az app
+  try {
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  } catch (e) {}
 })();
 </script>
 
@@ -171,7 +180,7 @@ const getName = () => { try { return localStorage.getItem("lakotarsak.name") || 
 
 /* automatikus frissítés: ha a szerveren újabb verzió van, újratölti az oldalt
    (az iPhone kezdőképernyős appja különben napokig a régit mutathatja). MINDEN kiadásnál át kell írni! */
-const APP_VERSION = "2026-11-04.1";
+const APP_VERSION = "2026-11-04.2";
 function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol)) return;
   fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" })
@@ -835,6 +844,76 @@ function NameModal({ initial, members, onSave, onRenameMember, onRemoveMember, o
   );
 }
 
+/* ---------- húzható sor: jobbra = megvettem, balra = törlés ---------- */
+function SwipeRow({ onRight, onLeft, rightLabel, leftLabel, className, style, children }) {
+  const [dx, setDx] = useState(0);
+  const [drag, setDrag] = useState(false);
+  const st = useRef(null);
+  const swiped = useRef(false);
+  const LIMIT = 90;
+  const down = (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    st.current = { x: e.clientX, y: e.clientY, on: false };
+  };
+  const move = (e) => {
+    const s = st.current; if (!s) return;
+    const mx = e.clientX - s.x, my = e.clientY - s.y;
+    if (!s.on) {
+      if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { st.current = null; return; } // görgetés
+      if (Math.abs(mx) < 14 || Math.abs(mx) < Math.abs(my) * 1.5) return;
+      s.on = true; setDrag(true);
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    setDx(mx);
+  };
+  const end = () => {
+    const s = st.current; st.current = null;
+    if (!s || !s.on) return;
+    swiped.current = true; setTimeout(() => { swiped.current = false; }, 50);
+    const d = dx; setDrag(false); setDx(0);
+    if (d > LIMIT && onRight) onRight();
+    else if (d < -LIMIT && onLeft) onLeft();
+  };
+  const past = Math.abs(dx) > LIMIT;
+  return (
+    <li className="relative" style={{ borderRadius: 16 }}>
+      {dx !== 0 && (
+        <div className="absolute inset-0 flex items-center px-4 text-[14px] font-bold" aria-hidden="true"
+          style={{ borderRadius: 16, justifyContent: dx > 0 ? "flex-start" : "flex-end",
+            background: dx > 0 ? (past ? "var(--green)" : "var(--green-bg)") : (past ? "var(--red)" : "var(--red-bg)"),
+            color: past ? "#fff" : (dx > 0 ? "var(--green)" : "var(--red)") }}>
+          {dx > 0 ? rightLabel : leftLabel}
+        </div>
+      )}
+      <div className={className} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        onClickCapture={(e) => { if (swiped.current) { e.stopPropagation(); e.preventDefault(); } }}
+        style={{ ...(style || {}), position: "relative", touchAction: "pan-y", transform: dx ? `translateX(${dx}px)` : undefined, transition: drag ? "none" : "transform .18s ease" }}>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+/* veszélyes, ritkán kellő gomb: alapból elrejtve egy „További műveletek” mögé */
+function DangerZone({ label, onClick }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-5 text-center">
+      {!open ? (
+        <button onClick={() => setOpen(true)} className="text-[12px] font-semibold px-3 py-2" style={{ color: "var(--muted)" }}>⋯ További műveletek</button>
+      ) : (
+        <div className="pop flex gap-2">
+          <button onClick={() => { setOpen(false); onClick(); }} className="flex-1 py-3 rounded-xl text-[14px] font-semibold inline-flex items-center justify-center gap-2 border"
+            style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
+            <Icon name="trash" className="w-[18px] h-[18px]" /> {label}
+          </button>
+          <button onClick={() => setOpen(false)} className="px-4 py-3 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ================= SHOPPING ================= */
 function FilterModal({ authorNames, myName, hidden, onToggle, onAll, onNone, onClose }) {
   const rows = [...authorNames.map((n) => ({ key: n, label: n + (n === myName ? " (én)" : "") })), { key: "__shared", label: "Közös" }];
@@ -863,16 +942,6 @@ function FilterModal({ authorNames, myName, hidden, onToggle, onAll, onNone, onC
   );
 }
 
-function TransferForm({ item, memberNames, onSubmit, onCancel }) {
-  return (
-    <DebtForm memberNames={memberNames} submitLabel="Áthozás tartozásba"
-      initial={{ payer: getName(), note: item.name + (item.qty ? ` (${item.qty})` : "") }}
-      intro={<p className="text-[12px] pt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}><Icon name="wallet" className="w-3.5 h-3.5 flex-none" /> Valaki másnak vetted meg? Told át a tartozásokhoz.</p>}
-      className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}
-      onSubmit={onSubmit} onCancel={onCancel} />
-  );
-}
-
 function OwnerPicker({ value, onChange, memberNames }) {
   const mine = getName();
   const opts = [...new Set([...(memberNames || []), value].filter(Boolean))].sort((a, b) => a.localeCompare(b, "hu"));
@@ -889,7 +958,7 @@ function OwnerPicker({ value, onChange, memberNames }) {
   );
 }
 
-function ShopEditForm({ item, cats, memberNames, onManageCats, onSave, onCancel, onToInventory, onTransferClick }) {
+function ShopEditForm({ item, cats, memberNames, onManageCats, onSave, onCancel }) {
   const [name, setName] = useState(item.name || "");
   const [qty, setQty] = useState(item.qty || "");
   const [catId, setCatId] = useState(item.catId || (findCat(cats, item) ? findCat(cats, item).id : ""));
@@ -922,19 +991,11 @@ function ShopEditForm({ item, cats, memberNames, onManageCats, onSave, onCancel,
         <button type="submit" className="btn-accent flex-1 py-2.5 text-[14px]">Mentés</button>
         <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>Mégse</button>
       </div>
-      <div className="flex gap-2 mt-2">
-        <button type="button" onClick={onToInventory} className="flex-1 py-2 rounded-xl text-[13px] font-semibold border inline-flex items-center justify-center gap-1.5" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>
-          <Icon name="box" className="w-[16px] h-[16px]" /> Készletbe
-        </button>
-        <button type="button" onClick={onTransferClick} className="flex-1 py-2 rounded-xl text-[13px] font-semibold border inline-flex items-center justify-center gap-1.5" style={{ borderColor: "var(--line)", color: "var(--accent)" }}>
-          <Icon name="wallet" className="w-[16px] h-[16px]" /> Tartozásba
-        </button>
-      </div>
     </form>
   );
 }
 
-function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onAdd, onEdit, onToInventory, onToggle, onRemove, onClear, onClearDone, onDoneToInventory, onTransfer, onToast }) {
+function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onAdd, onEdit, onToggle, onRemove, onClear, onClearDone, onDoneToInventory, onToast }) {
   const [q, setQ] = useState("");
   const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem("lakotarsak.shopHidden") || "{}") || {}; } catch (e) { return {}; } });
   const setHiddenPersist = (h) => { setHidden(h); try { localStorage.setItem("lakotarsak.shopHidden", JSON.stringify(h)); } catch (e) {} };
@@ -947,9 +1008,7 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
   const [img, setImg] = useState(null);
   const [store, setStore] = useState("");
   const [link, setLink] = useState("");
-  const [transferId, setTransferId] = useState(null);
   const [editId, setEditId] = useState(null);
-  const [showDone, setShowDone] = useState(true);
   const [more, setMore] = useState(false);
   const [groupBy, setGroupBy] = useState(() => { try { return localStorage.getItem("lakotarsak.shopGroup") || "none"; } catch (e) { return "none"; } });
   const changeGroup = (g) => { setGroupBy(g); try { localStorage.setItem("lakotarsak.shopGroup", g); } catch (e) {} };
@@ -986,11 +1045,6 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
     if (s.store) setStore(s.store);
     if (s.link) setLink(s.link);
   };
-  const doTransfer = (item, debt) => {
-    onTransfer(debt);
-    setTransferId(null);
-    onToast && onToast("Áthozva a tartozásokhoz ✓");
-  };
 
   const myName = getName();
   const bucketKey = (i) => (i.owner || "").trim() ? i.owner.trim() : "__shared";
@@ -1014,16 +1068,15 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
       <li key={i.id}>
         <ShopEditForm item={i} cats={cats} memberNames={memberNames} onManageCats={onManageCats}
           onSave={(patch) => { onEdit(i.id, patch); setEditId(null); }}
-          onCancel={() => setEditId(null)}
-          onToInventory={() => { onToInventory(i); setEditId(null); }}
-          onTransferClick={() => { setEditId(null); setTransferId(i.id); }} />
+          onCancel={() => setEditId(null)} />
       </li>
     );
     const c = findCat(cats, i);
     return (
-    <li key={i.id} className={"card overflow-hidden" + (c ? " border-l-4" : "")} style={c ? { borderLeftColor: c.color, background: catBg(c) } : null}>
-      <div className="p-2 flex items-center gap-2.5">
-        <button className="checkbox" data-on={i.done} onClick={() => onToggle(i)} aria-label={i.done ? "Vissza" : "Megvettem"}>
+    <SwipeRow key={i.id} onRight={() => onToggle(i)} onLeft={() => onRemove(i.id)} rightLabel="✓ Megvettem" leftLabel="Törlés"
+      className={"card overflow-hidden" + (c ? " border-l-4" : "")} style={c ? { borderLeftColor: c.color, background: catBg(c) } : null}>
+      <div className="p-2 flex items-center gap-2">
+        <button className="checkbox checkbox-lg" data-on={!!i.done} onClick={() => onToggle(i)} aria-label="Megvettem">
           {i.done && <Icon name="check" className="w-4 h-4" style={{ color: "var(--accent-ink)" }} />}
         </button>
         {i.img ? <Thumb src={i.img} /> : <ItemAvatar cat={c} name={i.name} />}
@@ -1031,9 +1084,6 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
           <p className={"font-semibold text-[15px] leading-tight truncate " + (i.done ? "line-through" : "")} style={{ color: i.done ? "var(--muted)" : "var(--ink)" }}>{i.name}</p>
           <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
             {i.qty && <span className="text-[12px] flex-none" style={{ color: "var(--muted)" }}>{i.qty}</span>}
-            {i.done && i.doneBy && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--green-bg)", color: "var(--green)" }}>✓ {i.doneBy}</span>
-            )}
             {i.from === "raktar" && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>raktárból</span>
             )}
@@ -1043,7 +1093,7 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
             {i.owner && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}><Icon name="person" className="w-3 h-3" /> {i.owner}</span>
             )}
-            {i.store && (
+            {i.store && groupBy !== "store" && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-none" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>🏪 {i.store}</span>
             )}
             {i.link && (
@@ -1054,37 +1104,45 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
             )}
           </div>
         </div>
-        <button onClick={() => { setEditId(i.id); setTransferId(null); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Szerkesztés">
-          <Icon name="edit" className="w-[18px] h-[18px]" />
+        <button onClick={() => setEditId(i.id)} className="icon-btn" aria-label="Szerkesztés">
+          <Icon name="edit" className="w-[19px] h-[19px]" />
         </button>
-        <button onClick={() => onRemove(i.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés">
-          <Icon name="trash" className="w-[18px] h-[18px]" />
+        <button onClick={() => onRemove(i.id)} className="icon-btn" aria-label="Törlés">
+          <Icon name="trash" className="w-[19px] h-[19px]" />
         </button>
       </div>
-      {transferId === i.id && (
-        <TransferForm item={i} memberNames={memberNames} onSubmit={(debt) => doTransfer(i, debt)} onCancel={() => setTransferId(null)} />
-      )}
-    </li>
+    </SwipeRow>
     );
   };
 
-  const catSections = () => {
+  // csoportosítás kategória vagy bolt szerint (a régi, kipipált tételek külön dobozba mennek)
+  const sections = () => {
     const groups = new Map();
     active.forEach((i) => {
-      const c = findCat(cats, i);
-      const key = c ? c.id : "__none";
-      if (!groups.has(key)) groups.set(key, { cat: c, items: [] });
+      let key, label, icon, sort;
+      if (groupBy === "store") {
+        const st = (i.store || "").trim();
+        key = st ? st.toLowerCase() : "__none"; label = st || "Bolt nincs megadva"; icon = st ? "🏪" : "❔"; sort = st ? 0 : 1;
+      } else {
+        const c = findCat(cats, i);
+        key = c ? c.id : "__none"; label = c ? c.name : "Egyéb"; icon = c ? c.icon : "📦"; sort = c ? (c.sort || 0) : Infinity;
+      }
+      if (!groups.has(key)) groups.set(key, { key, label, icon, sort, items: [] });
       groups.get(key).items.push(i);
     });
     const arr = [...groups.values()];
-    arr.sort((a, b) => { if (!a.cat) return 1; if (!b.cat) return -1; return (a.cat.sort || 0) - (b.cat.sort || 0); });
+    arr.sort((a, b) => (a.sort - b.sort) || a.label.localeCompare(b.label, "hu"));
     return arr;
   };
+  const segBtn = (key, label) => (
+    <button type="button" onClick={() => changeGroup(key)}
+      style={groupBy === key ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>{label}</button>
+  );
 
   return (
     <div className="pop">
       <SectionHead title="Bevásárlólista"
-        hint={items.length ? `${active.length} tétel hátra${done.length ? ` · ${done.length} kész` : ""}` : "Mit kell venni?"}
+        hint={items.length ? `${active.length} tétel hátra` : "Mit kell venni?"}
         action={
           <button onClick={() => setOpen((o) => !o)}
             className="btn-accent inline-flex items-center gap-1.5 pl-3 pr-4 py-2.5 text-[14px]">
@@ -1151,57 +1209,48 @@ function ShoppingView({ items, suggestPool, cats, memberNames, onManageCats, onA
           <span className="truncate">Kié: {filterSummary}</span>
         </button>
       )}
-      {items.length > 0 && (
-        <div className="seg mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <button type="button" onClick={() => changeGroup("none")}
-            style={groupBy === "none" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Egyszerű</button>
-          <button type="button" onClick={() => changeGroup("category")}
-            style={groupBy === "category" ? { background: "var(--surface)", color: "var(--accent)", boxShadow: "inset 0 0 0 1.5px var(--line)" } : { color: "var(--muted)" }}>Kategória szerint</button>
+      {active.length > 0 && (
+        <div className="seg mb-4">
+          {segBtn("none", "Egyszerű")}{segBtn("category", "Kategória")}{segBtn("store", "Bolt")}
         </div>
       )}
       {items.length === 0 ? (
         <Empty>A lista üres. Koppints az <b>Új tétel</b> gombra.</Empty>
       ) : filtered.length === 0 ? (
         <Empty>{q.trim() ? `Nincs találat erre: „${q}”.` : "Nincs a szűrésnek megfelelő tétel. Módosítsd a „Kié” szűrőt."}</Empty>
-      ) : groupBy === "category" ? (
+      ) : active.length === 0 ? (
+        <Empty>Minden megvéve. 🎉</Empty>
+      ) : groupBy !== "none" ? (
         <div className="space-y-5">
-          {catSections().map((s) => (
-            <div key={s.cat ? s.cat.id : "__none"}>
+          {sections().map((s) => (
+            <div key={s.key}>
               <div className="text-[13px] font-semibold mb-2 px-1 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
-                <span aria-hidden="true">{s.cat ? s.cat.icon : "📦"}</span>{s.cat ? s.cat.name : "Egyéb"}
+                <span aria-hidden="true">{s.icon}</span>{s.label}<span className="text-[11px] font-normal">{s.items.length}</span>
               </div>
               <ul className="space-y-1.5">{s.items.map(renderItem)}</ul>
             </div>
           ))}
-          {showDone && done.length > 0 && (
-            <div>
-              <div className="text-[13px] font-semibold mb-2 px-1" style={{ color: "var(--muted)" }}>Kész</div>
-              <ul className="space-y-1.5">{done.map(renderItem)}</ul>
-            </div>
-          )}
         </div>
       ) : (
-        <ul className="space-y-1.5">{(showDone ? [...active, ...done] : active).map(renderItem)}</ul>
+        <ul className="space-y-1.5">{active.map(renderItem)}</ul>
+      )}
+      {active.length > 0 && (
+        <p className="text-[11px] mt-2 px-1" style={{ color: "var(--muted)" }}>Tipp: húzd a tételt jobbra, ha megvetted, balra, ha törölnéd.</p>
       )}
       {done.length > 0 && (
-        <div className="mt-3 px-1 text-[13px] space-y-2">
-          <button onClick={() => setShowDone((s) => !s)} className="inline-flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent)" }}>
-            <Icon name={showDone ? "eyeoff" : "eye"} className="w-4 h-4" /> {showDone ? "Kész elrejtése" : "Kész mutatása"} ({done.length})
-          </button>
-          <div className="flex items-center gap-4">
-            <button onClick={onDoneToInventory} className="inline-flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent)" }}>
-              <Icon name="box" className="w-4 h-4" /> Kész a készletbe
+        <div className="card p-3 mt-4" style={{ background: "var(--surface-2)" }}>
+          <p className="text-[13px] font-semibold">Régebben kipipált tételek ({done.length})</p>
+          <p className="text-[12px] mt-0.5 mb-2" style={{ color: "var(--muted)" }}>Ezek még a régi „kész” jelöléssel maradtak a listán. Koppints egyre, vagy intézd el egyben:</p>
+          <ul className="space-y-1.5 mb-2.5">{done.map(renderItem)}</ul>
+          <div className="flex gap-2">
+            <button onClick={onDoneToInventory} className="flex-1 py-2 rounded-xl text-[13px] font-semibold inline-flex items-center justify-center gap-1.5" style={{ background: "var(--surface)", color: "var(--accent)" }}>
+              <Icon name="box" className="w-4 h-4" /> Mind raktárba
             </button>
-            <button onClick={onClearDone} className="font-semibold" style={{ color: "var(--muted)" }}>Kész törlése</button>
+            <button onClick={onClearDone} className="flex-1 py-2 rounded-xl text-[13px] font-semibold" style={{ background: "var(--surface)", color: "var(--muted)" }}>Mind törlése</button>
           </div>
         </div>
       )}
-      {items.length > 0 && (
-        <button onClick={onClear} className="mt-4 w-full py-3 rounded-xl text-[14px] font-semibold inline-flex items-center justify-center gap-2 border"
-          style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
-          <Icon name="trash" className="w-[18px] h-[18px]" /> Egész lista törlése
-        </button>
-      )}
+      {items.length > 0 && <DangerZone label="Egész lista törlése" onClick={onClear} />}
       {filterOpen && <FilterModal authorNames={ownerNames} myName={myName} hidden={hidden} onToggle={toggleKey} onAll={showAll} onNone={showNone} onClose={() => setFilterOpen(false)} />}
     </div>
   );
@@ -1345,8 +1394,8 @@ function InventoryView({ items, cats, memberNames, onManageCats, onAdd, onSave, 
             </div>
           )}
         </div>
-        <button onClick={() => { setEditId(i.id); setAdding(false); }} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Módosítás"><Icon name="edit" className="w-[18px] h-[18px]" /></button>
-        <button onClick={() => onRemove(i.id)} className="p-1.5 rounded-lg flex-none" style={{ color: "var(--muted)" }} aria-label="Törlés"><Icon name="trash" className="w-[18px] h-[18px]" /></button>
+        <button onClick={() => { setEditId(i.id); setAdding(false); }} className="icon-btn" aria-label="Módosítás"><Icon name="edit" className="w-[19px] h-[19px]" /></button>
+        <button onClick={() => onRemove(i.id)} className="icon-btn" aria-label="Törlés"><Icon name="trash" className="w-[19px] h-[19px]" /></button>
       </li>
     );
   };
@@ -1424,12 +1473,7 @@ function InventoryView({ items, cats, memberNames, onManageCats, onAdd, onSave, 
           ))}
         </div>
       )}
-      {items.length > 0 && (
-        <button onClick={onClear} className="mt-5 w-full py-3 rounded-xl text-[14px] font-semibold inline-flex items-center justify-center gap-2 border"
-          style={{ color: "var(--red)", borderColor: "var(--red-line)", background: "var(--red-bg)" }}>
-          <Icon name="trash" className="w-[18px] h-[18px]" /> Készlet ürítése
-        </button>
-      )}
+      {items.length > 0 && <DangerZone label="Készlet ürítése" onClick={onClear} />}
       {filterOpen && <FilterModal authorNames={ownerNames} myName={myName} hidden={hidden} onToggle={toggleKey} onAll={showAll} onNone={showNone} onClose={() => setFilterOpen(false)} />}
     </div>
   );
@@ -2340,28 +2384,7 @@ function App() {
     showToast(msg, { label: "Visszavon", fn: () => undos.forEach((f) => f()) });
   };
   const toggleShopping = (it) => {
-    if (!it.done) { setCheckPrompt(it); return; }
-    const nowDone = !it.done;
-    const key = (it.name || "").trim().toLowerCase();
-    const inv = data.inventory.find((x) => (x.name || "").trim().toLowerCase() === key);
-    if (nowDone) {
-      // megjegyzi, ki vette meg, és a készlet előző színét (ha visszaveszik a pipát, az is visszaáll)
-      const patch = { done: true, doneBy: getName() || null, invPrev: null };
-      if (inv && inv.status !== "green") {
-        patch.invPrev = { id: inv.id, status: inv.status };
-        ops.update("inventory", inv.id, { status: "green" });
-        showToast("Készleten zöldre állítva: " + inv.name);
-      }
-      ops.update("shopping", it.id, patch);
-    } else {
-      ops.update("shopping", it.id, { done: false, doneBy: null, invPrev: null });
-      const prev = it.invPrev;
-      const back = prev && data.inventory.find((x) => x.id === prev.id);
-      if (back && back.status === "green" && (prev.status === "amber" || prev.status === "red")) {
-        ops.update("inventory", back.id, { status: prev.status });
-        showToast("Készlet visszaállítva: " + back.name);
-      }
-    }
+    setCheckPrompt(it); // kipipáláskor mindig rákérdez (raktár / le a listáról / tartozásba is)
   };
   const removeWithUndo = (name, id, label) => {
     const item = (data[name] || []).find((i) => i.id === id);
@@ -2388,14 +2411,6 @@ function App() {
     if (exists) return;
     ops.add("shopping", { name: item.name, qty: item.qty || "", catId: item.catId || "", owner: item.owner || "", done: false, from: "raktar" });
     showToast("Bevásárlólistára téve (raktárból): " + item.name);
-  };
-  const sendToInventory = (item) => {
-    const key = (item.name || "").trim().toLowerCase();
-    if (!key) return;
-    const exists = data.inventory.some((x) => (x.name || "").trim().toLowerCase() === key);
-    if (exists) { showToast("Már a készletben van: " + item.name); return; }
-    ops.add("inventory", { name: item.name, qty: item.qty || "", catId: item.catId || "", owner: item.owner || "", status: "green" });
-    showToast("Készletbe téve: " + item.name);
   };
   const doneToInventory = () => {
     const doneItems = data.shopping.filter((i) => i.done);
@@ -2452,7 +2467,7 @@ function App() {
           </div>
           {cloud && (
             <div className="flex items-center gap-1.5 flex-none">
-              <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} badge={namedMembers.length} />
+              <IconBtn onClick={() => setNameOpen(true)} name="person" label="Neved és lakótársak" active={!!myName} />
               {!IS_IOS && <IconBtn onClick={enableNotif} name="bell" label="Értesítések bekapcsolása" active={notif === "granted"} />}
               <IconBtn onClick={share} name="share" label="Megosztás" />
             </div>
@@ -2465,13 +2480,11 @@ function App() {
           <ShoppingView items={data.shopping} suggestPool={data.inventory} cats={cats} memberNames={memberNames} onManageCats={() => setCatManagerOpen(true)}
             onAdd={(it) => ops.add("shopping", it)}
             onEdit={(id, patch) => ops.update("shopping", id, patch)}
-            onToInventory={sendToInventory}
             onToggle={toggleShopping}
             onRemove={(id) => removeWithUndo("shopping", id)}
             onClear={clearShopping}
             onClearDone={clearShoppingDone}
             onDoneToInventory={doneToInventory}
-            onTransfer={(d) => ops.add("debts", d)}
             onToast={showToast} />
         )}
         {tab === "inventory" && (

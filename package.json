@@ -1,0 +1,14 @@
+{
+  "name": "lakotarsak",
+  "private": true,
+  "description": "Build: a lakotarsak-kozos.html forrásból előre lefordított index.html (JSX + Tailwind CSS)",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@babel/core": "7.26.0",
+    "@babel/preset-react": "7.26.3",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.16"
+  }
+}
